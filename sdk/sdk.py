@@ -1,4 +1,5 @@
-import grpc
+import grpc 
+import abc as ABC
 from google.protobuf.timestamp_pb2 import Timestamp
 import logging
 from . import encryption, ipc, memory, pb, spclient
@@ -72,6 +73,22 @@ class SDK:
         # Call to gRPC API
         response = self.client.bucket_create(pb.BucketCreateRequest(name=name))
         return BucketCreateResult(name=response.name, created_at=response.created_at)
+    
+    def view_bucket(self, name: str):
+        if name == "":
+            raise SDKError("Invalid bucket name")        
+        
+        # Call to gRPC API
+        response = self.client.bucket_view(pb.BucketViewRequest(name=name))
+        return Bucket(name=response.name, created_at=response.created_at)
+    
+    def delete_bucket(self, name:str):
+       # Call to gRPC API 
+       try:
+           self.client.bucket_delete(pb.BucketDeleteRequest(name=name))
+       except SDKError as err:
+              logging.error(f"Error deleting bucket: {err}")
+              return False
 
     def new_erasure_code(self, data_blocks: int, parity_blocks: int):
         # Placeholder for erasure coding logic
@@ -79,6 +96,11 @@ class SDK:
 
 
 class BucketCreateResult:
+    def __init__(self, name: str, created_at: Timestamp):
+        self.name = name
+        self.created_at = created_at
+
+class Bucket:  
     def __init__(self, name: str, created_at: Timestamp):
         self.name = name
         self.created_at = created_at
