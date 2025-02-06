@@ -1,5 +1,4 @@
-import grpc 
-import abc as ABC
+import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
 import logging
 from . import ipc, memory, pb, spclient
@@ -11,7 +10,8 @@ ENCRYPTION_OVERHEAD = 28  # 16 bytes for AES-GCM tag, 12 bytes for nonce
 MIN_BUCKET_NAME_LENGTH = 3
 MIN_FILE_SIZE = 127  # 127 bytes
 
-from .sdk import IPC
+from .sdk_ipc import IPC
+from .sdk_streaming import StreamingAPI
 
 class SDKError(Exception):
     pass
@@ -74,17 +74,17 @@ class SDK:
         # Call to gRPC API
         response = self.client.bucket_create(pb.BucketCreateRequest(name=name))
         return BucketCreateResult(name=response.name, created_at=response.created_at)
-    
+
     def view_bucket(self, name: str):
         if name == "":
-            raise SDKError("Invalid bucket name")        
-        
+            raise SDKError("Invalid bucket name")
+
         # Call to gRPC API
         response = self.client.bucket_view(pb.BucketViewRequest(name=name))
         return Bucket(name=response.name, created_at=response.created_at)
-    
+
     def delete_bucket(self, name:str):
-       # Call to gRPC API 
+       # Call to gRPC API
        try:
            self.client.bucket_delete(pb.BucketDeleteRequest(name=name))
        except SDKError as err:
@@ -101,7 +101,7 @@ class BucketCreateResult:
         self.name = name
         self.created_at = created_at
 
-class Bucket:  
+class Bucket:
     def __init__(self, name: str, created_at: Timestamp):
         self.name = name
         self.created_at = created_at
