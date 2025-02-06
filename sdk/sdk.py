@@ -2,7 +2,8 @@ import grpc
 import abc as ABC
 from google.protobuf.timestamp_pb2 import Timestamp
 import logging
-from . import encryption, ipc, memory, pb, spclient
+from . import ipc, memory, pb, spclient
+from private.encryption import derive_key
 from typing import List, Optional
 
 BLOCK_SIZE = 1 * memory.MB
@@ -111,5 +112,5 @@ def encryption_key_derivation(parent_key: bytes, *info_data: str):
         return None
 
     info = "/".join(info_data)
-    key = encryption.derive_key(parent_key, info.encode())
+    key = derive_key(parent_key, info.encode())
     return key
