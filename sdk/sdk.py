@@ -3,7 +3,7 @@ import ipfshttpclient
 from google.protobuf.timestamp_pb2 import Timestamp
 import logging
 from private.memory.memory import Size
-from private.pb import nodeapi_pb2_grpc, ipcnodeapi_pb2_grpc
+from private.pb import nodeapi_pb2, nodeapi_pb2_grpc, ipcnodeapi_pb2_grpc
 from private.ipc.client import Client
 from private.spclient.spclient import SPClient
 from private.encryption import derive_key
@@ -32,7 +32,6 @@ class SDK:
         self.sp_client = None
         self.streaming_erasure_code = None
 
-        # Initializing variables
         self.max_concurrency = max_concurrency
         self.block_part_size = block_part_size
         self.use_connection_pool = use_connection_pool
@@ -44,11 +43,9 @@ class SDK:
         if self.block_part_size <= 0 or self.block_part_size > BLOCK_SIZE:
             raise SDKError(f"Invalid blockPartSize: {block_part_size}. Valid range is 1-{BLOCK_SIZE}")
 
-        # gRPC client connection
         self.conn = grpc.insecure_channel(address)
         self.client = nodeapi_pb2_grpc.NodeAPIStub(self.conn)
 
-        # Additional configurations (erasure coding, encryption validation)
         if len(self.encryption_key) != 0 and len(self.encryption_key) != 32:
             raise SDKError("Encryption key length should be 32 bytes long")
 
@@ -70,35 +67,40 @@ class SDK:
                             self.streaming_max_blocks_in_chunk)
 
     def ipc(self):
-        client = ipcnodeapi_pb2_grpc(self.conn)
+        client = ipcnodeapi_pb2_grpc.IPCNodeAPIStub(self.conn)
         ipc_instance = Client.dial(self.conn, self.private_key, client)
         return IPC(client, self.conn, self.max_concurrency, self.block_part_size, self.use_connection_pool, self.encryption_key, ipc_instance)
 
-    def create_bucket(self, name: str):
+    def create_bucket(self, ctx, name: str):
         if len(name) < MIN_BUCKET_NAME_LENGTH:
             raise SDKError("Invalid bucket name")
 
-        # Call to gRPC API
-        response = self.client.bucket_create(nodeapi_pb2_grpc.NodeAPIStub.BucketCreate(name=name))
-        return BucketCreateResult(name=response.name, created_at=response.created_at)
+        request = nodeapi_pb2.BucketCreateRequest(name=name)
+        response = self.client.bucket_create(ctx, request)
+        return BucketCreateResult(name=response.name, created_at=response.created_at.AsTime() if hasattr(response.created_at, 'AsTime') else response.created_at)
 
-    def view_bucket(self, name: str):
+    def view_bucket(self, ctx, name: str):
         if name == "":
             raise SDKError("Invalid bucket name")
 
-        # Call to gRPC API
-        response = self.client.bucket_view(nodeapi_pb2_grpc.NodeAPIStub.BucketView(name=name))
-        return Bucket(name=response.name, created_at=response.created_at)
+        request = nodeapi_pb2.BucketViewRequest(name=name)
+        response = self.client.bucket_view(ctx, request)
+        return Bucket(
+            name=response.name, 
+            created_at=response.created_at.AsTime() if hasattr(response.created_at, 'AsTime') else response.created_at
+        )
 
-    def delete_bucket(self, name:str):
-       # Call to gRPC API
-       try:
-           self.client.bucket_delete(nodeapi_pb2_grpc.NodeAPIStub.BucketDelete(name=name))
-       except SDKError as err:
-              logging.error(f"Error deleting bucket: {err}")
-              return False
-       
-   
+    def delete_bucket(self, ctx, name: str):
+        if name == "":
+            raise SDKError("Invalid bucket name")
+           
+        try:
+            request = nodeapi_pb2.BucketDeleteRequest(name=name)
+            self.client.bucket_delete(ctx, request)
+            return True
+        except Exception as err:
+            logging.error(f"Error deleting bucket: {err}")
+            raise SDKError(f"Failed to delete bucket: {err}")
 
     def extract_block_data(id_str: str, data: bytes) -> bytes:
         try:
@@ -131,7 +133,6 @@ class Bucket:
         self.name = name
         self.created_at = created_at
 
-# Encryption key derivation
 def encryption_key_derivation(parent_key: bytes, *info_data: str):
     if len(parent_key) == 0:
         return None
