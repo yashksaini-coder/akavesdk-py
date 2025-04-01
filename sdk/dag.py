@@ -21,7 +21,6 @@ class DAGRoot:
         self.data_size = 0  # Total raw data size
         
     def add_link(self, cid_str: str, raw_data_size: int, proto_node_size: int) -> None:
-        """Adds a chunk node to the root DAG"""
         self.data_size += raw_data_size
         
         cid_obj = CID.decode(cid_str)
@@ -35,7 +34,6 @@ class DAGRoot:
         self.links.append(link)
         
     def build(self) -> str:
-        """Builds the root CID from the chunk nodes"""
         if not self.links:
             raise DAGError("No chunks added")
             
