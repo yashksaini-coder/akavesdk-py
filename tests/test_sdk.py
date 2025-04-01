@@ -104,14 +104,17 @@ class MockSDK:
         )
     
     def list_buckets(self, ctx):
-        response = self.client.bucket_list(ctx, MagicMock())
-        buckets = []
-        for bucket in getattr(response, 'buckets', []):
-            buckets.append(Bucket(
-                name=bucket.name,
-                created_at=bucket.created_at.AsTime() if hasattr(bucket.created_at, 'AsTime') else bucket.created_at
-            ))
-        return buckets
+        try:
+            response = self.client.bucket_list(ctx, MagicMock())
+            buckets = []
+            for bucket in getattr(response, 'buckets', []):
+                buckets.append(Bucket(
+                    name=bucket.name,
+                    created_at=bucket.created_at.AsTime() if hasattr(bucket.created_at, 'AsTime') else bucket.created_at
+                ))
+            return buckets
+        except Exception as err:
+            raise SDKError(f"Failed to list buckets: {err}")
     
     def delete_bucket(self, ctx, name):
         if name == "":
@@ -263,6 +266,43 @@ class TestSDK(unittest.TestCase):
         self.assertEqual(len(buckets), 3)
         for i, bucket in enumerate(buckets):
             self.assertEqual(bucket.name, expected_buckets[i].name)
+    
+    def test_list_buckets_success(self):
+        mock_response = MagicMock()
+        mock_bucket1 = MagicMock()
+        mock_bucket1.name = "bucket1"
+        mock_bucket1.created_at = self.mock_timestamp
+        mock_bucket2 = MagicMock()
+        mock_bucket2.name = "bucket2"
+        mock_bucket2.created_at = self.mock_timestamp
+        mock_response.buckets = [mock_bucket1, mock_bucket2]
+
+        self.mock_client.bucket_list.return_value = mock_response
+
+        buckets = self.sdk.list_buckets(self.ctx)
+
+        self.assertEqual(len(buckets), 2)
+        self.assertEqual(buckets[0].name, "bucket1")
+        self.assertEqual(buckets[1].name, "bucket2")
+        self.assertEqual(buckets[0].created_at, self.mock_timestamp)
+        self.assertEqual(buckets[1].created_at, self.mock_timestamp)
+
+    def test_list_buckets_empty(self):
+        mock_response = MagicMock()
+        mock_response.buckets = []
+
+        self.mock_client.bucket_list.return_value = mock_response
+
+        buckets = self.sdk.list_buckets(self.ctx)
+
+        self.assertEqual(len(buckets), 0)
+        self.assertIsInstance(buckets, list)
+
+    def test_list_buckets_error(self):
+        self.mock_client.bucket_list.side_effect = Exception("Server error")
+
+        with self.assertRaises(SDKError):
+            self.sdk.list_buckets(self.ctx)
     
     def test_delete_bucket(self):
         bucket_name = self.random_bucket_name()
