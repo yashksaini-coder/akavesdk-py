@@ -21,7 +21,6 @@ class SDK:
         self.conn = None
         self.sp_client = None
         self.streaming_erasure_code = None
-
         self.max_concurrency = max_concurrency
         self.block_part_size = block_part_size
         self.use_connection_pool = use_connection_pool
@@ -66,15 +65,15 @@ class SDK:
             raise SDKError("Invalid bucket name")
 
         request = nodeapi_pb2.BucketCreateRequest(name=name)
-        response = self.client.bucket_create(ctx, request)
+        response = self.client.BucketCreate(request)
         return BucketCreateResult(name=response.name, created_at=response.created_at.AsTime() if hasattr(response.created_at, 'AsTime') else response.created_at)
 
     def view_bucket(self, ctx, name: str):
         if name == "":
             raise SDKError("Invalid bucket name")
 
-        request = nodeapi_pb2.BucketViewRequest(name=name)
-        response = self.client.bucket_view(ctx, request)
+        request = nodeapi_pb2.BucketViewRequest(bucket_name=name)
+        response = self.client.BucketView(request)
         return Bucket(
             name=response.name, 
             created_at=response.created_at.AsTime() if hasattr(response.created_at, 'AsTime') else response.created_at
@@ -86,7 +85,7 @@ class SDK:
            
         try:
             request = nodeapi_pb2.BucketDeleteRequest(name=name)
-            self.client.bucket_delete(ctx, request)
+            self.client.BucketDelete(request)
             return True
         except Exception as err:
             logging.error(f"Error deleting bucket: {err}")

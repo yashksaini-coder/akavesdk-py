@@ -105,13 +105,11 @@ class FileChunkDownload:
     Blocks: List[FileBlockDownload]
 
 class ConnectionPool:
-    """Manages a pool of gRPC connections"""
     def __init__(self):
         self.connections = {}
         self.lock = threading.Lock()
     
     def create_streaming_client(self, address: str, use_pool: bool):
-        """Creates a streaming client for the given address"""
         if not use_pool:
             channel = grpc.insecure_channel(address)
             client = nodeapi_pb2.StreamAPIStub(channel)
@@ -290,7 +288,7 @@ class StreamingAPI:
                 bucket_name=bucket_name
             )
             
-            resp = self.client.FileList(ctx, request)
+            resp = self.client.File(ctx, request)
             
             files = []
             for file_meta in resp.files:

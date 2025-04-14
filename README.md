@@ -1,6 +1,6 @@
 # Akave SDK for Python
 
-The Akave SDK for Python provides a simple interface to interact with the Akave platform. It enables you to store and manage files securely on the Akave decentralized storage network.
+The Akave SDK for Python provides a simple interface to interact with the Akave decentralized network. It enables you to store and manage files securely using blockchain-based storage operations through the IPC API.
 
 ## Installation
 
@@ -20,9 +20,15 @@ pip install git+https://github.com/d4v1d03/akavesdk-py.git
 
 The Akave SDK uses two main authentication methods:
 
-1. **Wallet-based authentication** - This uses Ethereum wallet private keys for IPC operations on the blockchain. This is required for operations that require blockchain transactions (creating buckets, managing file permissions, etc.).
+1. **Blockchain-based authentication (IPC API)** - This uses Ethereum wallet private keys for IPC operations on the blockchain. This is required for operations that require blockchain transactions (creating buckets, managing file permissions, etc.).
 
 2. **Standard API connection** - Basic operations like file uploads/downloads use gRPC connections to Akave nodes.
+
+### Private Key Security
+
+**Always be careful when dealing with your private key. Double-check that you're not hardcoding it anywhere or committing it to Git. Remember: anyone with access to your private key has complete control over your funds.**
+
+Ensure you're not reusing a private key that's been deployed on other EVM chains. Each blockchain has its own attack vectors, and reusing keys across chains exposes you to cross-chain vulnerabilities. Keep separate keys to maintain isolation and protect your assets.
 
 You can set up your authentication in several ways:
 
@@ -30,9 +36,23 @@ You can set up your authentication in several ways:
 
 ```bash
 # Set these environment variables
-export AKAVE_NODE="api.akave.io:50051"  # Default Akave API endpoint
-export AKAVE_PRIVATE_KEY="your_ethereum_private_key"  # Optional, for blockchain operations
+export AKAVE_NODE="connect.akave.ai:5500"  # Default Akave node endpoint
+export AKAVE_PRIVATE_KEY="your_ethereum_private_key"  # Required for blockchain operations
 export AKAVE_ENCRYPTION_KEY="your_32_byte_encryption_key"  # Optional, for file encryption
+```
+
+#### Secure Private Key Management
+
+For better security, store your private key in a file with restricted permissions:
+
+```bash
+# Create a secure key file
+mkdir -p ~/.key
+echo "your-private-key-content" > ~/.key/user.akvf.key
+chmod 600 ~/.key/user.akvf.key
+
+# Use the key file in your environment
+export AKAVE_PRIVATE_KEY="$(cat ~/.key/user.akvf.key)"
 ```
 
 ### Direct initialization
@@ -42,47 +62,75 @@ from akavesdk import SDK
 
 # Initialize with explicit parameters
 sdk = SDK(
-    address="api.akave.io:50051",
-    max_concurrency=4,
+    address="connect.akave.ai:5500",  # Current Akave public endpoint
+    max_concurrency=10,
     block_part_size=1 * 1024 * 1024,  # 1MB
     use_connection_pool=True,
-    private_key="your_ethereum_private_key",  # Optional
-    encryption_key=b"your_32_byte_encryption_key"  # Optional
+    private_key="your_ethereum_private_key",  # Required for IPC API operations
+    encryption_key=b"your_32_byte_encryption_key"  # Optional, for file encryption
 )
 ```
 
 ### Getting credentials
 
-To obtain Akave credentials:
+To get an Akave wallet address and add the chain to MetaMask:
 
-1. Create an account on the [Akave platform](https://akave.io)
-2. Generate API keys from your account dashboard
-3. For wallet-based authentication, use an Ethereum wallet private key
+1. Visit the [Akave Faucet](https://faucet.akave.ai) to connect and add the Akave chain to MetaMask
+2. Request funds from the faucet
+3. Export your private key from MetaMask (Settings -> Account details -> Export private key)
+
+You can check your transactions on the [Akave Blockchain Explorer](https://explorer.akave.ai)
 
 ## Usage
 
-### Basic Usage
+### IPC API Usage (Blockchain-based, Recommended)
+
+The IPC API is the recommended approach for interacting with Akave's decentralized storage. It provides access to Akave's smart contracts, enabling secure, blockchain-based bucket and file operations.
 
 ```python
 from akavesdk import SDK
 
-# Initialize the SDK
+# Initialize the SDK with a private key
 sdk = SDK(
-    address="api.akave.io:50051",
-    max_concurrency=4,
+    address="connect.akave.ai:5500",
+    max_concurrency=10,
     block_part_size=1 * 1024 * 1024,  # 1MB
-    use_connection_pool=True
+    use_connection_pool=True,
+    private_key=os.environ.get("AKAVE_PRIVATE_KEY")  # Required for IPC operations
 )
 
 try:
+    # Get IPC API interface
+    ipc = sdk.ipc()
+    
     # Create a bucket
-    bucket_result = sdk.create_bucket({}, "my-bucket")
+    bucket_result = ipc.create_bucket({}, "my-bucket")
     print(f"Created bucket: {bucket_result.name}")
     
-    # List all buckets
-    buckets = sdk.list_buckets({})
+    # List buckets
+    buckets = ipc.list_buckets({})
     for bucket in buckets:
         print(f"Bucket: {bucket.name}, Created: {bucket.created_at}")
+    
+    # Upload a file (minimum file size is 127 bytes, max recommended test size: 100MB)
+    with open("my-file.txt", "rb") as f:
+        ipc.create_file_upload({}, "my-bucket", "my-file.txt")
+        file_meta = ipc.upload({}, "my-bucket", "my-file.txt", f)
+        print(f"Uploaded file: {file_meta.name}, Size: {file_meta.encoded_size} bytes")
+    
+    # Download a file
+    with open("downloaded-file.txt", "wb") as f:
+        download = ipc.create_file_download({}, "my-bucket", "my-file.txt")
+        ipc.download({}, download, f)
+        print(f"Downloaded file with {len(download.chunks)} chunks")
+    
+    # Delete a file
+    ipc.file_delete({}, "my-bucket", "my-file.txt")
+    print("File deleted successfully")
+    
+    # Delete a bucket
+    ipc.delete_bucket({}, "my-bucket")
+    print("Bucket deleted successfully")
 finally:
     # Always close the connection when done
     sdk.close()
@@ -95,9 +143,9 @@ from akavesdk import SDK
 
 # Initialize the SDK
 sdk = SDK(
-    address="api.akave.io:50051",
-    max_concurrency=4,
-    block_part_size=1 * 1024 * 1024,
+    address="connect.akave.ai:5500",
+    max_concurrency=10,
+    block_part_size=1 * 1024 * 1024,  # 1MB
     use_connection_pool=True
 )
 
@@ -116,6 +164,11 @@ try:
 finally:
     sdk.close()
 ```
+
+## File Size Requirements
+
+- **Minimum file size**: 127 bytes
+- **Maximum recommended test size**: 100MB
 
 ## Development
 
@@ -141,6 +194,13 @@ pip install -e .
 4. Run tests:
 ```bash
 pytest
+```
+
+## Node Address
+
+The current public endpoint for the blockchain-based network is:
+```
+connect.akave.ai:5500
 ```
 
 ## License
