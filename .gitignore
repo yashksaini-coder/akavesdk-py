@@ -58,3 +58,5 @@ pytest*
 *.pyo
 *.db
 *.sqlite3
+
+test.py 

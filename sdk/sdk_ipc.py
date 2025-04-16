@@ -87,10 +87,10 @@ def to_ipc_proto_chunk(chunk_cid: str, index: int, size: int, blocks):
     return cids, sizes, proto_chunk, None
 
 class IPC:
-    def __init__(self, client, conn, ipc, max_concurrency, block_part_size, use_connection_pool, encryption_key=None, max_blocks_in_chunk=32, erasure_code=None):
+    def __init__(self, client, conn, ipc_instance, max_concurrency, block_part_size, use_connection_pool, encryption_key=None, max_blocks_in_chunk=32, erasure_code=None):
         self.client = client
         self.conn = conn
-        self.ipc = ipc
+        self.ipc = ipc_instance
         self.max_concurrency = max_concurrency
         self.block_part_size = block_part_size
         self.use_connection_pool = use_connection_pool
@@ -103,6 +103,9 @@ class IPC:
             raise SDKError("invalid bucket name")
 
         try:
+            request = ipcnodeapi_pb2_grpc.IPCBucketCreateRequest(name=name)
+            response = self.client.BucketCreate(request)
+            return IPCBucketCreateResult(name=response.name, created_at=response.created_at.AsTime() if hasattr(response.created_at, 'AsTime') else response.created_at)
             tx = self.ipc.storage.create_bucket(self.ipc.auth, name)
             if not tx:
                 raise SDKError("failed to create bucket transaction")

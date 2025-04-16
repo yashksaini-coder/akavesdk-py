@@ -1,6 +1,6 @@
 # Akave SDK for Python
 
-The Akave SDK for Python provides a simple interface to interact with the Akave decentralized network. It enables you to store and manage files securely using blockchain-based storage operations through the IPC API.
+The Akave SDK for Python provides a simple interface to interact with the Akave decentralized network.
 
 ## Installation
 

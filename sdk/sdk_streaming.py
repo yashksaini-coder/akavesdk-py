@@ -17,6 +17,7 @@ from .common import SDKError
 from .model import FileMeta, FileListItem
 from .erasure_code import ErasureCode
 from private.pb import nodeapi_pb2
+from private.pb import nodeapi_pb2_grpc
 from private.spclient.spclient import SPClient
 from private.encryption import encrypt, decrypt, derive_key
 from sdk.dag import build_dag, extract_block_data
@@ -59,11 +60,11 @@ class FileDownload:
 @dataclass
 class FileBlockUpload:
     """Represents a block for upload"""
-    CID: str
-    Data: bytes
-    NodeAddress: str = ""
-    NodeID: str = ""
-    Permit: bytes = b""
+    cid: str
+    data: bytes
+    node_address: str = ""
+    node_id: str = ""
+    permit: bytes = b""
 
 @dataclass
 class FileChunkUpload:
@@ -112,7 +113,7 @@ class ConnectionPool:
     def create_streaming_client(self, address: str, use_pool: bool):
         if not use_pool:
             channel = grpc.insecure_channel(address)
-            client = nodeapi_pb2.StreamAPIStub(channel)
+            client = nodeapi_pb2_grpc.StreamAPIStub(channel)
             return client, lambda: channel.close()
         
         with self.lock:
@@ -121,7 +122,7 @@ class ConnectionPool:
                 return client, None
             
             channel = grpc.insecure_channel(address)
-            client = nodeapi_pb2.StreamAPIStub(channel)
+            client = nodeapi_pb2_grpc.StreamAPIStub(channel)
             self.connections[address] = (client, channel)
             return client, None
     
@@ -154,16 +155,16 @@ class DAGRoot:
         if not hasattr(cidlib, 'make_cid'):
             # Fallback if cidlib not available
             cid_str = "Qm" + base64.b32encode(os.urandom(32)).decode('utf-8')
-            return type('CID', (), {'string': lambda: cid_str})()
+            return type('CID', (), {'string': lambda *args: cid_str})()
         
         try:
             # Actually build a CID if the library is available
             root_cid = cidlib.make_cid(f"dag_root_{len(self.links)}")
-            return root_cid
+            return type('CID', (), {'string': lambda *args: str(root_cid)})()
         except Exception:
             # Fallback on error
             cid_str = "Qm" + base64.b32encode(os.urandom(32)).decode('utf-8')
-            return type('CID', (), {'string': lambda: cid_str})()
+            return type('CID', (), {'string': lambda *args: cid_str})()
 
 def encryption_key(parent_key: bytes, *info_data: str):
     """Derive an encryption key from a parent key and information data"""
@@ -177,18 +178,18 @@ def to_proto_chunk(stream_id: str, cid: str, index: int, size: int, blocks: List
     """Convert block data to protobuf chunk format"""
     pb_blocks = []
     for block in blocks:
-        pb_blocks.append({
-            "cid": block.CID,
-            "size": len(block.Data) if hasattr(block, 'Data') and block.Data is not None else 0
-        })
+        pb_blocks.append(nodeapi_pb2.Chunk.Block(
+            cid=block.cid,
+            size=len(block.data) if block.data is not None else 0
+        ))
     
-    return {
-        "stream_id": stream_id,
-        "cid": cid,
-        "index": index,
-        "size": size,
-        "blocks": pb_blocks
-    }
+    return nodeapi_pb2.Chunk(
+        stream_id=stream_id,
+        cid=cid,
+        index=index,
+        size=size,
+        blocks=pb_blocks
+    )
 
 class StreamingAPI:
     """
@@ -251,18 +252,9 @@ class StreamingAPI:
                 file_name=file_name
             )
             
-            res = self.client.FileView(ctx, request)
+            res = self.client.FileView(request)
             
-            return FileMeta(
-                stream_id=res.stream_id,
-                root_cid=res.root_cid,
-                bucket_name=res.bucket_name, 
-                name=res.file_name,
-                encoded_size=res.encoded_size,
-                size=res.size,
-                created_at=res.created_at.ToDatetime() if hasattr(res.created_at, 'ToDatetime') else res.created_at,
-                committed_at=res.committed_at.ToDatetime() if hasattr(res.committed_at, 'ToDatetime') else res.committed_at
-            )
+            return self._to_file_meta(res, bucket_name)
         except Exception as err:
             raise SDKError(f"failed to get file info: {str(err)}")
     
@@ -288,7 +280,7 @@ class StreamingAPI:
                 bucket_name=bucket_name
             )
             
-            resp = self.client.File(ctx, request)
+            resp = self.client.FileList(request)
             
             files = []
             for file_meta in resp.files:
@@ -322,7 +314,7 @@ class StreamingAPI:
                 file_name=file_name
             )
             
-            resp = self.client.FileVersions(ctx, request)
+            resp = self.client.FileVersions(request)
             
             files = []
             for file_meta in resp.versions:
@@ -356,7 +348,7 @@ class StreamingAPI:
                 file_name=file_name
             )
             
-            res = self.client.FileUploadCreate(ctx, request)
+            res = self.client.FileUploadCreate(request)
             
             return FileUpload(
                 BucketName=res.bucket_name,
@@ -460,15 +452,15 @@ class StreamingAPI:
                 root_cid=root_cid
             )
             
-            res = self.client.FileDownloadCreate(ctx, request)
+            res = self.client.FileDownloadCreate(request)
             
             chunks = []
-            for chunk in res.chunks:
+            for i, chunk in enumerate(res.chunks):
                 chunks.append(Chunk(
                     CID=chunk.cid,
                     EncodedSize=chunk.encoded_size,
                     Size=chunk.size,
-                    Index=chunk.index
+                    Index=i  # Use the position in the list as the index
                 ))
             
             return FileDownload(
@@ -505,7 +497,7 @@ class StreamingAPI:
                 end_index=end
             )
             
-            res = self.client.FileDownloadRangeCreate(ctx, request)
+            res = self.client.FileDownloadRangeCreate(request)
             
             chunks = []
             for chunk in res.chunks:
@@ -644,7 +636,7 @@ class StreamingAPI:
                 file_name=file_name
             )
             
-            self.client.FileDelete(ctx, request)
+            self.client.FileDelete(request)
         except Exception as err:
             raise SDKError(f"failed to delete file: {str(err)}")
     
@@ -660,15 +652,31 @@ class StreamingAPI:
         Returns:
             FileMeta: Converted file metadata
         """
+        # Get created_at, handling both protobuf timestamp and datetime
+        created_at = None
+        if hasattr(file_meta, 'created_at'):
+            if hasattr(file_meta.created_at, 'ToDatetime'):
+                created_at = file_meta.created_at.ToDatetime()
+            else:
+                created_at = file_meta.created_at
+        
+        # Get committed_at if it exists
+        committed_at = None
+        if hasattr(file_meta, 'committed_at'):
+            if hasattr(file_meta.committed_at, 'ToDatetime'):
+                committed_at = file_meta.committed_at.ToDatetime()
+            else:
+                committed_at = file_meta.committed_at
+        
         return FileMeta(
             stream_id=file_meta.stream_id,
             root_cid=file_meta.root_cid,
             bucket_name=bucket_name,
-            name=file_meta.file_name,
+            name=file_meta.name if hasattr(file_meta, 'name') else file_meta.file_name,
             encoded_size=file_meta.encoded_size,
             size=file_meta.size,
-            created_at=file_meta.created_at.ToDatetime() if hasattr(file_meta.created_at, 'ToDatetime') else file_meta.created_at,
-            committed_at=file_meta.committed_at.ToDatetime() if hasattr(file_meta.committed_at, 'ToDatetime') else file_meta.committed_at
+            created_at=created_at,
+            committed_at=committed_at
         )
     
     # Updated DAG operation methods
@@ -683,7 +691,7 @@ class StreamingAPI:
     def _build_dag_root(self, dag_root):
         """Build the DAG root and return its CID"""
         root_cid = dag_root.build()
-        if hasattr(root_cid, 'string'):
+        if hasattr(root_cid, 'string') and callable(root_cid.string):
             return root_cid.string()
         return str(root_cid)
     
@@ -721,20 +729,28 @@ class StreamingAPI:
             # Build the DAG for the chunk
             chunk_dag = build_dag(ctx, io.BytesIO(data), block_size)
             
+            # Convert blocks to FileBlockUpload format
+            block_uploads = []
+            for block in chunk_dag.blocks:
+                block_uploads.append(FileBlockUpload(
+                    cid=block.cid,
+                    data=block.data
+                ))
+            
             # Convert to protobuf chunk format
             proto_chunk = to_proto_chunk(
                 file_upload.StreamID,
-                chunk_dag.cid.string() if hasattr(chunk_dag.cid, 'string') else str(chunk_dag.cid),
+                chunk_dag.cid if isinstance(chunk_dag.cid, str) else str(chunk_dag.cid),
                 index,
                 size,
-                [FileBlockUpload(CID=block["cid"], Data=block["data"]) for block in chunk_dag.blocks]
+                block_uploads
             )
             
             # Create the chunk upload request
             request = nodeapi_pb2.StreamFileUploadChunkCreateRequest(chunk=proto_chunk)
             
             # Send the request
-            res = self.client.FileUploadChunkCreate(ctx, request)
+            res = self.client.FileUploadChunkCreate(request)
             
             # Verify the response
             if len(res.blocks) != len(chunk_dag.blocks):
@@ -743,15 +759,19 @@ class StreamingAPI:
             # Update block metadata with node information
             blocks = []
             for i, upload in enumerate(res.blocks):
-                if chunk_dag.blocks[i]["cid"] != upload.cid:
+                if i >= len(chunk_dag.blocks):
+                    raise SDKError(f"block index {i} out of range")
+                
+                block_cid = chunk_dag.blocks[i].cid
+                if block_cid != upload.cid:
                     raise SDKError(f"block CID mismatch at position {i}")
                 
                 blocks.append(FileBlockUpload(
-                    CID=chunk_dag.blocks[i]["cid"],
-                    Data=chunk_dag.blocks[i]["data"],
-                    NodeAddress=upload.node_address,
-                    NodeID=upload.node_id,
-                    Permit=upload.permit
+                    cid=block_cid,
+                    data=chunk_dag.blocks[i].data,
+                    node_address=upload.node_address,
+                    node_id=upload.node_id,
+                    permit=upload.permit
                 ))
             
             # Create and return the chunk upload
@@ -829,31 +849,51 @@ class StreamingAPI:
         """
         try:
             # Create a client for the node
-            client, closer = pool.create_streaming_client(block.NodeAddress, self.use_connection_pool)
+            client, closer = pool.create_streaming_client(block.node_address, self.use_connection_pool)
             
             try:
-                # Create a streaming connection for the block upload
-                sender = client.FileUploadBlock(ctx)
+                # Convert memoryview to bytes if necessary
+                data = block.data
+                if isinstance(data, memoryview):
+                    data = data.tobytes()
                 
-                # Upload the block data
-                err = self._upload_block_segments(
-                    ctx,
-                    {
-                        "data": block.Data,
-                        "cid": block.CID,
-                        "index": block_index,
-                        "chunk": proto_chunk
-                    },
-                    sender.send
-                )
+                # Create a request iterator for the streaming call
+                def request_iterator():
+                    # First send the metadata
+                    block_segment = nodeapi_pb2.StreamFileBlockData(
+                        cid=block.cid,
+                        index=block_index,
+                        chunk=proto_chunk
+                    )
+                    yield block_segment
+                    
+                    # Then send the data in chunks
+                    data_len = len(data)
+                    i = 0
+                    while i < data_len:
+                        # Check for context cancellation
+                        if hasattr(ctx, 'done') and ctx.done():
+                            return
+                            
+                        # Calculate the end of this segment
+                        end = i + self.block_part_size
+                        if end > data_len:
+                            end = data_len
+                        
+                        # Create the block data object
+                        block_segment = nodeapi_pb2.StreamFileBlockData(
+                            data=data[i:end]
+                        )
+                        yield block_segment
+                        
+                        # Move to the next segment
+                        i += self.block_part_size
                 
-                if err:
-                    raise err
+                # Create and execute the streaming call
+                response = client.FileUploadBlock(request_iterator())
                 
-                # Close the streaming connection
-                _, err = sender.close_and_recv()
-                if err:
-                    raise err
+                # If we get here, the upload was successful
+                return
                 
             finally:
                 # Close the client connection if not using the pool
@@ -861,55 +901,7 @@ class StreamingAPI:
                     closer()
                     
         except Exception as err:
-            raise SDKError(f"failed to upload block {block.CID}: {str(err)}")
-    
-    def _upload_block_segments(self, ctx, block_data, send_func: Callable):
-        """
-        Upload a block in segments to avoid memory issues with large blocks.
-        
-        Args:
-            ctx: Context object
-            block_data: Block data to upload
-            send_func: Function to send data
-            
-        Returns:
-            Optional[Exception]: Any error that occurred during upload
-        """
-        try:
-            data = block_data.get("data", b"")
-            data_len = len(data)
-            
-            if data_len == 0:
-                return None
-                
-            i = 0
-            while i < data_len:
-                # Check for context cancellation
-                if hasattr(ctx, 'done') and ctx.done():
-                    return SDKError("context cancelled")
-                    
-                # Calculate the end of this segment
-                end = i + self.block_part_size
-                if end > data_len:
-                    end = data_len
-                
-                # Create a segment with just the relevant slice of data
-                segment_data = dict(block_data)
-                segment_data["data"] = data[i:end]
-                
-                # Send the segment
-                send_func(segment_data)
-                
-                # Clear non-essential data for subsequent segments
-                segment_data["chunk"] = None
-                segment_data["cid"] = ""
-                
-                # Move to the next segment
-                i += self.block_part_size
-                
-            return None
-        except Exception as err:
-            return SDKError(f"failed to upload block segments: {str(err)}")
+            raise SDKError(f"failed to upload block {block.cid}: {str(err)}")
     
     def _commit_stream(self, ctx, upload, root_cid, chunk_count):
         """Placeholder for committing stream"""
@@ -920,7 +912,7 @@ class StreamingAPI:
             chunk_count=chunk_count
         )
         
-        res = self.client.FileUploadCommit(ctx, request)
+        res = self.client.FileUploadCommit(request)
         
         return FileMeta(
             stream_id=res.stream_id,
@@ -941,7 +933,7 @@ class StreamingAPI:
             chunk_cid=chunk.CID
         )
         
-        res = self.client.FileDownloadChunkCreate(ctx, request)
+        res = self.client.FileDownloadChunkCreate(request)
         
         blocks = []
         for block in res.blocks:
@@ -970,7 +962,7 @@ class StreamingAPI:
             chunk_cid=chunk.CID
         )
         
-        res = self.client.FileDownloadChunkCreateV2(ctx, request)
+        res = self.client.FileDownloadChunkCreateV2(request)
         
         blocks = []
         for block in res.blocks:
@@ -1181,25 +1173,24 @@ class StreamingAPI:
                     block_index=block_index
                 )
                 
-                # Send the request
-                download_client = client.FileDownloadBlock(ctx, download_req)
+                # Send the request with a timeout of 30 seconds
+                download_client = client.FileDownloadBlock(download_req, timeout=30.0)
                 
                 # Receive the data
                 buffer = io.BytesIO()
-                while True:
-                    try:
-                        # Receive a block
-                        block_data = download_client.recv()
+                try:
+                    while True:
+                        # Receive a block using next() for streaming responses
+                        block_data = next(download_client)
                         if not block_data:
                             break
                         # Write the data to the buffer
                         buffer.write(block_data.data)
-                    except Exception as e:
-                        # Break on EOF
-                        if isinstance(e, io.EOF) or "EOF" in str(e):
-                            break
-                        # Raise other errors
-                        raise SDKError(f"error receiving block data: {str(e)}")
+                except StopIteration:
+                    # This is normal - it means we've received all the data
+                    pass
+                except Exception as e:
+                    raise SDKError(f"error receiving block data: {str(e)}")
                 
                 # Return the complete data
                 return buffer.getvalue()

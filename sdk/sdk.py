@@ -3,7 +3,7 @@ import ipfshttpclient
 from google.protobuf.timestamp_pb2 import Timestamp
 import logging
 from private.pb import nodeapi_pb2, nodeapi_pb2_grpc, ipcnodeapi_pb2_grpc
-from private.ipc.client import Client
+from private.ipc.client import Client, Config
 from private.spclient.spclient import SPClient
 from private.encryption import derive_key
 from typing import List, Optional
@@ -51,14 +51,38 @@ class SDK:
             self.conn.close()
 
     def streaming_api(self):
-        return StreamingAPI(self.conn, self.client, self.streaming_erasure_code, self.max_concurrency,
-                            self.block_part_size, self.use_connection_pool, self.encryption_key,
-                            self.streaming_max_blocks_in_chunk)
+        """Returns SDK streaming API."""
+        return StreamingAPI(
+            conn=self.conn,
+            client=nodeapi_pb2_grpc.StreamAPIStub(self.conn),
+            erasure_code=self.streaming_erasure_code,
+            max_concurrency=self.max_concurrency,
+            block_part_size=self.block_part_size,
+            use_connection_pool=self.use_connection_pool,
+            encryption_key=self.encryption_key,
+            max_blocks_in_chunk=self.streaming_max_blocks_in_chunk
+        )
 
     def ipc(self):
         client = ipcnodeapi_pb2_grpc.IPCNodeAPIStub(self.conn)
-        ipc_instance = Client.dial(self.conn, self.private_key, client)
-        return IPC(client, self.conn, self.max_concurrency, self.block_part_size, self.use_connection_pool, self.encryption_key, ipc_instance)
+        
+        ethereum_node_url = "https://127.0.0.1:5000"
+        
+        # Prepare IPC client configuration
+        config = Config(
+            dial_uri=ethereum_node_url,
+            private_key=self.private_key,
+            # Contract addresses are dynamically determined by the IPC client
+            storage_contract_address="",
+            access_contract_address=""
+        )
+        
+        # Log connection info for debugging
+        logging.info(f"Connecting to Ethereum node at: {ethereum_node_url}")
+        logging.info(f"Using gRPC endpoint: {getattr(self.conn, '_target', 'unknown')}")
+        
+        ipc_instance = Client.dial(config)
+        return IPC(client, self.conn, ipc_instance, self.max_concurrency, self.block_part_size, self.use_connection_pool, self.encryption_key)
 
     def create_bucket(self, ctx, name: str):
         if len(name) < MIN_BUCKET_NAME_LENGTH:

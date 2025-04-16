@@ -9,6 +9,7 @@ These classes are the Python equivalent of Go structs from model.go.
 import time
 from typing import List, Optional, Union, Any
 from dataclasses import dataclass
+from datetime import datetime
 
 
 @dataclass
@@ -53,9 +54,30 @@ class FileBlockUpload:
     """A piece of metadata of some file used for upload."""
     cid: str
     data: bytes
-    permit: str = ""
     node_address: str = ""
     node_id: str = ""
+    permit: bytes = b""
+
+    # Alias properties for backwards compatibility with uppercase naming
+    @property
+    def CID(self):
+        return self.cid
+        
+    @property
+    def Data(self):
+        return self.data
+        
+    @property
+    def NodeAddress(self):
+        return self.node_address
+        
+    @property
+    def NodeID(self):
+        return self.node_id
+        
+    @property
+    def Permit(self):
+        return self.permit
 
 
 @dataclass
@@ -125,8 +147,8 @@ class FileMeta:
     name: str
     encoded_size: int
     size: int
-    created_at: Any
-    committed_at: Any  # Note: Fixed typo from "CommitedAt" to "committed_at"
+    created_at: datetime
+    committed_at: Optional[datetime] = None
 
 
 @dataclass
