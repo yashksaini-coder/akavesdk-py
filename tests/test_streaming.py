@@ -12,21 +12,6 @@ from datetime import datetime, timezone
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
 
-# Import our actual implementation
-from sdk.sdk_streaming import (
-    StreamingAPI, Chunk, FileUpload, FileDownload, FileChunkUpload, 
-    FileBlockUpload, FileChunkDownload, FileBlockDownload, AkaveBlockData,
-    FilecoinBlockData, ConnectionPool, DAGRoot
-)
-from sdk.sdk import SDKError
-from sdk.model import FileMeta
-from sdk.erasure_code import ErasureCode
-
-# Constants for testing
-MAX_CONCURRENCY = 5
-BLOCK_PART_SIZE = 128 * 1024  # 128 KiB
-MB = 1024 * 1024  # 1 MB in bytes
-
 # Mock modules that our actual implementation uses
 sys.modules['multiformats'] = MagicMock()
 sys.modules['multiformats.cid'] = MagicMock()
@@ -46,8 +31,20 @@ sys.modules['sdk.dag'] = MagicMock()
 sys.modules['sdk.dag'].build_dag = MagicMock()
 sys.modules['sdk.dag'].extract_block_data = MagicMock(return_value=b'test_block_data')
 
-# We don't need to redefine these classes since we're using the real ones
-# class SDKError, FileMeta, ErasureCode, StreamingAPI
+# Now we can import our actual implementation
+from sdk.sdk_streaming import (
+    StreamingAPI, Chunk, FileUpload, FileDownload, FileChunkUpload, 
+    FileBlockUpload, FileChunkDownload, FileBlockDownload, AkaveBlockData,
+    FilecoinBlockData, ConnectionPool, DAGRoot
+)
+from sdk.sdk import SDKError
+from sdk.model import FileMeta
+from sdk.erasure_code import ErasureCode
+
+# Constants for testing
+MAX_CONCURRENCY = 5
+BLOCK_PART_SIZE = 128 * 1024  # 128 KiB
+MB = 1024 * 1024  # 1 MB in bytes
 
 class BackgroundContext:
     """Simple context implementation similar to Go's context.Background()"""

@@ -1,12 +1,14 @@
 import time
+from typing import Optional
 from web3 import Web3
 from web3.middleware import geth_poa_middleware
 from eth_account import Account
-from private.ipc import contracts
+from eth_account.signers.local import LocalAccount
+from .contracts import StorageContract, AccessManagerContract
 
 class Config:
     """Configuration for the Ethereum storage contract client."""
-    def __init__(self, dial_uri, private_key, storage_contract_address="", access_contract_address=""):
+    def __init__(self, dial_uri: str, private_key: str, storage_contract_address: str, access_contract_address: Optional[str] = None):
         self.dial_uri = dial_uri
         self.private_key = private_key
         self.storage_contract_address = storage_contract_address
@@ -18,36 +20,41 @@ class Config:
 
 class Client:
     """Represents the Ethereum storage client."""
-    def __init__(self, web3, storage_contract, access_manager, account):
+    def __init__(self, web3: Web3, auth: LocalAccount, storage: StorageContract, access_manager: Optional[AccessManagerContract] = None):
         self.web3 = web3
-        self.storage = storage_contract
+        self.auth = auth
+        self.storage = storage
         self.access_manager = access_manager
-        self.account = account
         self.ticker = 0.2  # 200ms polling interval
 
     @classmethod
-    def dial(cls, config):
-        """Creates an Ethereum client and initializes smart contract instances."""
+    def dial(cls, config: Config) -> 'Client':
+        """Creates a new IPC client with the given configuration.
+        
+        Args:
+            config: Client configuration
+            
+        Returns:
+            A new IPC client instance
+        """
+        # Initialize Web3
         web3 = Web3(Web3.HTTPProvider(config.dial_uri))
-
         if not web3.is_connected():
             raise ConnectionError("Failed to connect to Ethereum node")
 
-        web3.middleware_onion.inject(geth_poa_middleware, layer=0)  # Inject middleware for POA chains if needed
+        # Add POA middleware for POA chains
+        web3.middleware_onion.inject(geth_poa_middleware, layer=0)
 
+        # Create account from private key
         account = Account.from_key(config.private_key)
 
-        storage_contract = web3.eth.contract(
-            address=Web3.to_checksum_address(config.storage_contract_address),
-            abi=contracts.Storage.abi
-        )
+        # Initialize contracts
+        storage = StorageContract(web3, config.storage_contract_address)
+        access_manager = None
+        if config.access_contract_address:
+            access_manager = AccessManagerContract(web3, config.access_contract_address)
 
-        access_manager = web3.eth.contract(
-            address=Web3.to_checksum_address(config.access_contract_address),
-            abi=contracts.AccessManager.abi
-        )
-
-        return cls(web3, storage_contract, access_manager, account)
+        return cls(web3, account, storage, access_manager)
 
     @classmethod
     def deploy_storage(cls, config: Config):
@@ -58,7 +65,8 @@ class Client:
         if not web3.is_connected():
             raise ConnectionError("Failed to connect to Ethereum node")
 
-        web3.middleware_onion.inject(geth_poa_middleware, layer=0)  # Inject middleware for POA chains if needed
+        # Add POA middleware for POA chains
+        web3.middleware_onion.inject(geth_poa_middleware, layer=0)
 
         account = Account.from_key(config.private_key)
 
@@ -94,17 +102,20 @@ class Client:
         storage_instance = web3.eth.contract(address=storage_address, abi=contracts.Storage.abi)
         access_manager_instance = web3.eth.contract(address=access_manager_address, abi=contracts.AccessManager.abi)
 
-        return cls(web3, storage_instance, access_manager_instance, account), storage_address
+        return cls(web3, account, storage_instance, access_manager_instance), storage_address
 
-    def wait_for_tx(self, tx_hash, timeout=60):
-        """Waits for a transaction to be confirmed."""
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            receipt = self.web3.eth.get_transaction_receipt(tx_hash)
-            if receipt:
-                if receipt.status == 1:
-                    return receipt
-                else:
-                    raise RuntimeError("Transaction failed")
-            time.sleep(0.2)
-        raise TimeoutError("Transaction timeout")
+    def wait_for_tx(self, ctx, tx_hash: str) -> bool:
+        """Waits for a transaction to be mined.
+        
+        Args:
+            ctx: Context for cancellation
+            tx_hash: Transaction hash to wait for
+            
+        Returns:
+            True if transaction was successful, False otherwise
+        """
+        try:
+            receipt = self.web3.eth.wait_for_transaction_receipt(tx_hash)
+            return receipt.status == 1
+        except Exception as e:
+            return False

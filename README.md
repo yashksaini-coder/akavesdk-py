@@ -203,6 +203,40 @@ The current public endpoint for the blockchain-based network is:
 connect.akave.ai:5500
 ```
 
+## Data Model
+
+The Akave SDK for Python uses a set of Python dataclasses to represent the data structures used by the Akave network. These are Python equivalents of the Go structs used in the original SDK, adapted to follow Python conventions and best practices.
+
+### Core Data Types
+
+- **CIDType**: Content identifier for files, chunks, and blocks
+- **TimestampType**: Union type that can represent timestamps in different formats (datetime, float, int)
+
+### Bucket Operations
+
+- **Bucket**: Represents a storage bucket in the Akave network
+- **BucketCreateResult**: Result of a bucket creation operation
+
+### File & Streaming Operations
+
+- **FileMeta**: Contains metadata for a file (ID, size, timestamps)
+- **Chunk**: Represents a piece of a file with its own metadata
+- **Block**: The smallest unit of data storage, identified by a CID
+
+### File Operations Models
+
+- **FileListItem**: Used when listing files in a bucket
+- **FileUpload/FileDownload**: Contains file metadata for upload/download operations
+- **FileChunkUpload/FileChunkDownload**: Represents chunks during file transfer operations
+
+### IPC Operations Models
+
+- **IPCBucket**: Blockchain-based bucket representation
+- **IPCFileMetaV2**: Extended file metadata for IPC operations
+- **IPCFileChunkUploadV2**: Chunk metadata for IPC operations
+
+The model structure is designed to be intuitive to Python developers while maintaining compatibility with the Akave API. All serialization/deserialization between Python objects and gRPC messages is handled automatically by the SDK.
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

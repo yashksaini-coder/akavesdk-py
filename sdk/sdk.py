@@ -2,7 +2,7 @@ import grpc
 import ipfshttpclient
 from google.protobuf.timestamp_pb2 import Timestamp
 import logging
-from private.pb import nodeapi_pb2, nodeapi_pb2_grpc, ipcnodeapi_pb2_grpc
+from private.pb import nodeapi_pb2, nodeapi_pb2_grpc, ipcnodeapi_pb2, ipcnodeapi_pb2_grpc
 from private.ipc.client import Client, Config
 from private.spclient.spclient import SPClient
 from private.encryption import derive_key
@@ -12,6 +12,8 @@ from .sdk_ipc import IPC
 from .sdk_streaming import StreamingAPI
 from .erasure_code import ErasureCode
 from .common import SDKError, BLOCK_SIZE, MIN_BUCKET_NAME_LENGTH
+import os
+import time
 
 class SDK:
     def __init__(self, address: str, max_concurrency: int, block_part_size: int, use_connection_pool: bool,
@@ -32,8 +34,10 @@ class SDK:
         if self.block_part_size <= 0 or self.block_part_size > BLOCK_SIZE:
             raise SDKError(f"Invalid blockPartSize: {block_part_size}. Valid range is 1-{BLOCK_SIZE}")
 
+        # Create gRPC channel and clients
         self.conn = grpc.insecure_channel(address)
         self.client = nodeapi_pb2_grpc.NodeAPIStub(self.conn)
+        self.ipc_client = ipcnodeapi_pb2_grpc.IPCNodeAPIStub(self.conn)
 
         if len(self.encryption_key) != 0 and len(self.encryption_key) != 32:
             raise SDKError("Encryption key length should be 32 bytes long")
@@ -47,6 +51,7 @@ class SDK:
         self.sp_client = SPClient()
 
     def close(self):
+        """Close the gRPC channel."""
         if self.conn:
             self.conn.close()
 
@@ -64,25 +69,65 @@ class SDK:
         )
 
     def ipc(self):
-        client = ipcnodeapi_pb2_grpc.IPCNodeAPIStub(self.conn)
-        
-        ethereum_node_url = "https://127.0.0.1:5000"
-        
-        # Prepare IPC client configuration
-        config = Config(
-            dial_uri=ethereum_node_url,
-            private_key=self.private_key,
-            # Contract addresses are dynamically determined by the IPC client
-            storage_contract_address="",
-            access_contract_address=""
-        )
-        
-        # Log connection info for debugging
-        logging.info(f"Connecting to Ethereum node at: {ethereum_node_url}")
-        logging.info(f"Using gRPC endpoint: {getattr(self.conn, '_target', 'unknown')}")
-        
-        ipc_instance = Client.dial(config)
-        return IPC(client, self.conn, ipc_instance, self.max_concurrency, self.block_part_size, self.use_connection_pool, self.encryption_key)
+        """Returns SDK IPC API."""
+        try:
+            # Get connection parameters from the node
+            try:
+                params_request = ipcnodeapi_pb2.ConnectionParamsRequest()
+                conn_params = self.ipc_client.ConnectionParams(params_request)
+                logging.info(f"Received connection params - dial_uri: {conn_params.dial_uri}, contract: {conn_params.contract_address}")
+            except Exception as e:
+                logging.warning(f"Could not get connection parameters, using defaults: {str(e)}")
+                # Use default values if connection params call fails
+                conn_params = type('ConnectionParams', (), {
+                    'dial_uri': os.getenv('ETHEREUM_NODE_URL', 'https://n1-us.akave.ai/ext/bc/2JMWNmZbYvWcJRPPy1siaDBZaDGTDAaqXoY5UBKh4YrhNFzEce/rpc'),
+                    'contract_address': os.getenv('STORAGE_CONTRACT_ADDRESS', '')
+                })
+            
+            if not self.private_key:
+                raise SDKError("Private key is required for IPC operations")
+            
+            # Prepare IPC client configuration
+            config = Config(
+                dial_uri=conn_params.dial_uri,
+                private_key=self.private_key,
+                storage_contract_address=conn_params.contract_address,
+                access_contract_address=os.getenv('ACCESS_CONTRACT_ADDRESS', '')
+            )
+            
+            # Create IPC instance with retries
+            max_retries = 3
+            retry_delay = 1  
+            last_error = None
+            
+            for attempt in range(max_retries):
+                try:
+                    ipc_instance = Client.dial(config)
+                    if ipc_instance:
+                        logging.info("Successfully connected to Ethereum node")
+                        break
+                except Exception as e:
+                    last_error = e
+                    logging.warning(f"Attempt {attempt + 1}/{max_retries} failed: {str(e)}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    continue
+            else:
+                raise SDKError(f"Failed to dial IPC client after {max_retries} attempts: {str(last_error)}")
+            
+            return IPC(
+                client=self.ipc_client,
+                conn=self.conn,
+                ipc_instance=ipc_instance,
+                max_concurrency=self.max_concurrency,
+                block_part_size=self.block_part_size,
+                use_connection_pool=self.use_connection_pool,
+                encryption_key=self.encryption_key,
+                max_blocks_in_chunk=self.streaming_max_blocks_in_chunk
+            )
+        except Exception as e:
+            raise SDKError(f"Failed to initialize IPC API: {str(e)}")
 
     def create_bucket(self, ctx, name: str):
         if len(name) < MIN_BUCKET_NAME_LENGTH:
