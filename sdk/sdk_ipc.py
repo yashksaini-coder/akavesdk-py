@@ -295,8 +295,44 @@ class IPC:
     def list_files(self, ctx, bucket_name: str) -> list[IPCFileListItem]:
         if not bucket_name:
             raise SDKError("empty bucket name")
-        logging.warning(f"IPC list_files for bucket '{bucket_name}' is not fully implemented and will return an empty list.")
-        return []
+
+        try:
+            request = ipcnodeapi_pb2.IPCFileListRequest(
+                bucket_name=bucket_name,
+                address=self.ipc.auth.address.lower()
+            )
+            response = self.client.FileList(request)
+            
+            files = []
+            if response and hasattr(response, 'list'):
+                logging.info(f"Received FileList response with {len(response.list)} files")
+                for file_item in response.list:
+                    created_at = 0
+                    if hasattr(file_item, 'created_at') and file_item.created_at:
+                        created_at = int(file_item.created_at.seconds)
+                    
+                    file_name = file_item.name if hasattr(file_item, 'name') else ''
+                    root_cid = file_item.root_cid if hasattr(file_item, 'root_cid') else ''
+                    encoded_size = file_item.encoded_size if hasattr(file_item, 'encoded_size') else 0
+                    
+                    logging.info(f"Processing file: name={file_name}, root_cid={root_cid}, size={encoded_size}, created_at={created_at}")
+                    
+                    files.append(IPCFileListItem(
+                        name=file_name,
+                        root_cid=root_cid,
+                        encoded_size=encoded_size,
+                        created_at=created_at
+                    ))
+            else:
+                logging.warning("FileList response has no 'list' field or is empty")
+            
+            return files
+        except grpc.RpcError as e:
+            logging.error(f"IPC list_files gRPC failed: {e.code()} - {e.details()}")
+            raise SDKError(f"failed to list files: {e.details()}")
+        except Exception as err:
+            logging.error(f"IPC list_files unexpected error: {err}")
+            raise SDKError(f"failed to list files: {err}")
 
     def file_delete(self, ctx, bucket_name: str, file_name: str) -> None:
         if not bucket_name.strip() or not file_name.strip():
