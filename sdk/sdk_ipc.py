@@ -234,9 +234,11 @@ class IPC:
                 # Get transaction receipt and verify status
                 receipt = self.ipc.web3.eth.wait_for_transaction_receipt(tx)
                 if receipt.status != 1:
-                    # Try to get revert reason
+                    # Try to get revert reason with correct function signature
                     try:
-                        self.ipc.storage.contract.functions.deleteBucket(name).call({
+                        # Generate bucket ID and use caller as owner for revert reason check
+                        bucket_id = self.ipc.web3.keccak(text=name)
+                        self.ipc.storage.contract.functions.deleteBucket(bucket_id, name, self.ipc.auth.address).call({
                             'from': self.ipc.auth.address
                         })
                     except Exception as e:
