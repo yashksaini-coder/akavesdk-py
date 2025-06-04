@@ -4,7 +4,7 @@ from typing import List, Tuple, Dict, Optional, Any, BinaryIO
 from dataclasses import dataclass
 from ipld_dag_pb import PBNode, PBLink, encode, decode, code
 from multiformats import multihash, CID
-from ..private.encryption.encryption import encrypt, decrypt
+from private.encryption.encryption import encrypt, decrypt
 
 from .model import FileBlockUpload
 
@@ -16,7 +16,7 @@ DEFAULT_HASH_FUNC = "sha2-256"
 
 class DAGRoot:
     
-    def __init__(self):
+    def __init__(self):       
         self.links = []  # Format: [PBLink objects]
         self.data_size = 0  # Total raw data size
         
@@ -54,7 +54,7 @@ class ChunkDAG:
     proto_node_size: int  
     blocks: List[FileBlockUpload]
 
-def chunk_data(reader: BinaryIO, block_size: int) -> List[bytes]:
+def split_into_chunks(reader: BinaryIO, block_size: int) -> List[bytes]:
     chunks = []
     while True:
         chunk = reader.read(block_size)
@@ -64,7 +64,7 @@ def chunk_data(reader: BinaryIO, block_size: int) -> List[bytes]:
     return chunks
 
 def build_dag(ctx: Any, reader: BinaryIO, block_size: int, enc_key: Optional[bytes] = None) -> ChunkDAG:
-    chunks = chunk_data(reader, block_size)
+    chunks = split_into_chunks(reader, block_size)
     blocks = []
     
     total_raw_size = 0
@@ -115,16 +115,23 @@ def extract_block_data(id_str: str, data: bytes) -> bytes:
     except Exception as e:
         raise ValueError(f"Invalid CID: {e}")
 
-    if cid_obj.codec == code:  # dag-pb code
+    # Handle different codec representations
+    codec = cid_obj.codec
+    if isinstance(codec, str):
+        codec_str = codec
+    else:
+        codec_str = str(codec)
+
+    if "dag-pb" in codec_str or codec == code:  # Handle both string and numeric codec
         try:
             node = decode(data)
             return node.data if node.data is not None else b""
         except Exception as e:
             raise ValueError(f"Failed to decode DAG node: {e}")
-    elif cid_obj.codec == 0x55:  # raw codec
+    elif codec == 0x55:  # raw codec
         return data
     else:
-        raise ValueError(f"Unknown CID codec: {cid_obj.codec}")
+        raise ValueError(f"Unknown CID codec: {codec_str}")
 
 def block_by_cid(blocks: List[FileBlockUpload], cid_str: str) -> Tuple[FileBlockUpload, bool]:
     for block in blocks:
