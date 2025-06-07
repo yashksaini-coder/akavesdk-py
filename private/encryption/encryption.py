@@ -4,6 +4,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
+from typing import Tuple, cast
 
 KEY_LENGTH = 32
 
@@ -19,18 +20,29 @@ def derive_key(key: bytes, info: bytes) -> bytes:
     return hkdf.derive(key)
 
 
-def make_gcm_cipher(origin_key: bytes, info: bytes):
+def make_gcm_cipher(origin_key: bytes, info: bytes) -> Tuple[Cipher, bytes]:
+    """
+    Creates a GCM cipher using the provided key and info.
+    The key is derived using HKDF with SHA-256, and a random nonce is generated.
+    :param origin_key: The original key to derive from, must be 32 bytes long.
+    :param info: Additional information for key derivation.
+    :return: A tuple containing the Cipher object and the nonce.
+    """
+    if len(origin_key) != KEY_LENGTH:
+        raise ValueError(f"Key must be {KEY_LENGTH} bytes long")
     key = derive_key(origin_key, info)
-    cipher = Cipher(algorithms.AES(key), modes.GCM(os.urandom(12)), backend=default_backend())
-    return cipher
+    nonce = os.urandom(12)  # AES-GCM standard nonce size
+    cipher = Cipher(algorithms.AES(key), modes.GCM(nonce), backend=default_backend())
+    return cipher, nonce
 
 
 def encrypt(key: bytes, data: bytes, info: bytes) -> bytes:
-    cipher = make_gcm_cipher(key, info)
+    cipher, nonce = make_gcm_cipher(key, info)
     encryptor = cipher.encryptor()
-    nonce = encryptor._ctx._nonce  # Get the automatically generated nonce
     ciphertext = encryptor.update(data) + encryptor.finalize()
-    return nonce + ciphertext + encryptor.tag
+    tag = encryptor.tag # type: ignore[union-attr]
+    encrypted_data = nonce + ciphertext + tag
+    return cast(bytes, encrypted_data)
 
 
 def decrypt(key: bytes, encrypted_data: bytes, info: bytes) -> bytes:
@@ -46,4 +58,5 @@ def decrypt(key: bytes, encrypted_data: bytes, info: bytes) -> bytes:
     key = derive_key(key, info)
     cipher = Cipher(algorithms.AES(key), modes.GCM(nonce, tag), backend=default_backend())
     decryptor = cipher.decryptor()
-    return decryptor.update(ciphertext) + decryptor.finalize()
+    decrypted_data = decryptor.update(ciphertext) + decryptor.finalize()
+    return cast(bytes, decrypted_data)
