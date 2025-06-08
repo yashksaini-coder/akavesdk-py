@@ -5,8 +5,8 @@ from private.pb import nodeapi_pb2_grpc, ipcnodeapi_pb2_grpc
 
 
 class ConnectionPool:
-    # by default , retry 3 times with exponential backoff
-    # The init function sets the retries and delay parameters
+    # by default , retry 3 times with exponential backoff.
+    # The init function sets the retries and delay parameters.
     def _retry(func, retries=3, delay=1):
         def wrapper(self, **kwargs):
             current_retry = 0
@@ -23,7 +23,8 @@ class ConnectionPool:
                     current_delay *= 2
             return None
         return wrapper
-
+    
+    # The retries and delay can be configured.
     def __init__(self, retries=3, delay=1):
         self._lock = threading.RLock()
         self._connections = {}
