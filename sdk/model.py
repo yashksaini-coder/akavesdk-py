@@ -11,11 +11,8 @@ from typing import List, Optional, Union, Any, NewType
 from dataclasses import dataclass
 from datetime import datetime
 
-# Type definitions for domain-specific types
-try:
-    from multiformats.cid import CID as CIDType
-except ImportError:
-    CIDType = NewType('CID', str)
+from multiformats.cid import CID as CIDType
+
 
 # Type for timestamp fields that could be different formats
 TimestampType = Union[datetime, float, int]
@@ -208,7 +205,7 @@ class IPCFileMetaV2:
     bucket_name: str
     encoded_size: int
     size: int = 0
-    created_at: TimestampType = None
+    created_at: Optional[TimestampType] = None
     committed_at: Optional[TimestampType] = None
 
 
