@@ -348,9 +348,10 @@ class IPC:
             file_id = file_info[0]  # bytes32 file ID
             file_index = self.ipc.storage.get_file_index_by_id(
                 {},
-                encrypted_file_name,
-                bucket_id 
+                bucket_name,
+                file_id 
             )
+            
             logging.info(f"Deleting file with file_id: {file_id.hex() if isinstance(file_id, bytes) else file_id}, bucket_id: {bucket_id.hex() if isinstance(bucket_id, bytes) else bucket_id}, name: {encrypted_file_name}, index: {file_index}")
             tx_hash = self.ipc.storage.delete_file(
                 self.ipc.auth,          
@@ -370,25 +371,24 @@ class IPC:
     def create_file_upload(self, ctx, bucket_name: str, file_name: str) -> None:
         if not bucket_name:
             raise SDKError("empty bucket name")
-
         try:
-            # Use web3 instance from ipc_instance for keccak
-            if not hasattr(self.ipc, 'web3'):
-                 raise SDKError("Web3 instance not available in IPC client")
-            file_id = self.ipc.web3.keccak(text=f"{bucket_name}/{file_name}")
-            
-            logging.info(f"Creating file record on chain for {bucket_name}/{file_name} with ID: {file_id.hex()}")
-            # Create file record using storage contract
-            self.ipc.storage.create_file(
-                bucket_name,
-                file_name,
-                file_id,
-                0,  # Initial size is 0
-                self.ipc.auth.address, 
-                self.ipc.auth.key
+            bucket = self.ipc.storage.get_bucket_by_name(
+                {"from": self.ipc.auth.address},
+                bucket_name
             )
-            logging.info(f"IPC create_file transaction sent.")
-            return None
+            if not bucket:
+                raise SDKError("failed to retrieve bucket")
+            
+            bucket_id = bucket[0]  
+            
+            tx_hash = self.ipc.storage.create_file(
+                self.ipc.auth.address, 
+                self.ipc.auth.key,
+                bucket_id,
+                file_name
+            )
+            logging.info(f"IPC create_file_upload transaction sent, tx_hash: {tx_hash}")
+            return None    
         except Exception as err:
             logging.error(f"IPC create_file_upload failed: {err}")
             raise SDKError(f"failed to create file upload: {err}")
