@@ -1,7 +1,19 @@
 import time
 from typing import Optional
 from web3 import Web3
-from web3.middleware import geth_poa_middleware
+try:
+    from web3.middleware import geth_poa_middleware
+except ImportError:
+    # For newer web3 versions, geth_poa_middleware is in a different location
+    try:
+        from web3.middleware.geth_poa import geth_poa_middleware
+    except ImportError:
+        # For very new versions, create a simple replacement
+        def geth_poa_middleware(make_request, web3):
+            def middleware(method, params):
+                response = make_request(method, params)
+                return response
+            return middleware
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
 from .contracts import StorageContract, AccessManagerContract

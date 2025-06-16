@@ -547,7 +547,8 @@ class StreamingAPI:
             )
             
             # Create the chunk upload request
-            request = nodeapi_pb2.StreamFileUploadChunkCreateRequest(chunk=proto_chunk)
+            request = nodeapi_pb2.StreamFileUploadChunkCreateRequest()
+            request.chunk.CopyFrom(proto_chunk)
             
             # Send the request
             res = self.client.FileUploadChunkCreate(request)

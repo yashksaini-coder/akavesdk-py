@@ -60,7 +60,7 @@ ENCRYPTION_KEY=your_encryption_key
     return True
 
 def test_basic_operations(sdk):
-    """Test basic bucket operations"""
+    """Test basic bucket operations with comprehensive assertions"""
     try:
         # Generate a unique bucket name
         bucket_name = f"test-bucket-{uuid.uuid4().hex[:8]}"
@@ -69,21 +69,66 @@ def test_basic_operations(sdk):
         # Test bucket creation
         logging.info("Creating bucket...")
         result = sdk.create_bucket(None, bucket_name)
+        
+        # Enhanced assertions for bucket creation
+        assert result is not None, "Bucket creation result should not be None"
+        assert hasattr(result, 'name'), "Bucket result should have 'name' attribute"
+        assert hasattr(result, 'created_at'), "Bucket result should have 'created_at' attribute"
+        assert result.name == bucket_name, f"Expected bucket name '{bucket_name}', got '{result.name}'"
+        assert result.created_at is not None, "Bucket creation timestamp should not be None"
+        
         logging.info(f"✓ Bucket created: {result.name}")
         logging.info(f"  Created at: {result.created_at}")
+        logging.info(f"  Assertion checks passed for bucket creation")
 
         # Test bucket viewing
         logging.info("\nViewing bucket...")
         bucket = sdk.view_bucket(None, bucket_name)
+        
+        # Enhanced assertions for bucket viewing
+        assert bucket is not None, "Bucket view result should not be None"
+        assert hasattr(bucket, 'name'), "Bucket should have 'name' attribute"
+        assert hasattr(bucket, 'created_at'), "Bucket should have 'created_at' attribute"
+        assert bucket.name == bucket_name, f"Expected bucket name '{bucket_name}', got '{bucket.name}'"
+        assert bucket.created_at is not None, "Bucket timestamp should not be None"
+        
+        # Verify that the creation timestamps match (within reasonable tolerance)
+        if hasattr(result.created_at, 'timestamp') and hasattr(bucket.created_at, 'timestamp'):
+            time_diff = abs(result.created_at.timestamp() - bucket.created_at.timestamp())
+            assert time_diff < 60, f"Creation timestamps differ by more than 60 seconds: {time_diff}"
+        
         logging.info(f"✓ Bucket found: {bucket.name}")
         logging.info(f"  Created at: {bucket.created_at}")
+        logging.info(f"  Assertion checks passed for bucket viewing")
 
+        # Test bucket deletion
         logging.info("\nDeleting bucket...")
-        sdk.delete_bucket(None, bucket_name)
+        delete_result = sdk.delete_bucket(None, bucket_name)
+        
+        # Enhanced assertions for bucket deletion
+        # Note: delete_bucket typically returns True on success or raises an exception
+        assert delete_result is True or delete_result is None, "Bucket deletion should return True or None on success"
+        
         logging.info(f"✓ Bucket {bucket_name} deleted")
+        logging.info(f"  Assertion checks passed for bucket deletion")
 
+        # Verify bucket is actually deleted by trying to view it
+        try:
+            deleted_bucket = sdk.view_bucket(None, bucket_name)
+            # If we get here without exception, the bucket still exists
+            logging.warning(f"Warning: Bucket {bucket_name} still exists after deletion")
+        except SDKError as e:
+            # This is expected - bucket should not be found
+            logging.info(f"✓ Confirmed bucket deletion - bucket not found as expected")
+        except Exception as e:
+            logging.warning(f"Unexpected error when verifying deletion: {str(e)}")
+
+        logging.info("✓ All basic operations completed successfully with enhanced assertions")
         return True
 
+    except AssertionError as e:
+        logging.error(f"Assertion failed in basic operations: {str(e)}")
+        return False
     except SDKError as e:
         logging.error(f"SDK Error in basic operations: {str(e)}")
         return False
@@ -92,11 +137,32 @@ def test_basic_operations(sdk):
         return False
 
 def test_streaming_api(sdk):
-    """Test streaming API operations"""
+    """Test streaming API operations with enhanced assertions"""
     try:
+        logging.info("Initializing streaming API...")
         streaming = sdk.streaming_api()
-        logging.info("✓ Streaming API initialized")
+        
+        # Enhanced assertions for streaming API
+        assert streaming is not None, "Streaming API should not be None"
+        assert hasattr(streaming, 'create_file_upload'), "Streaming API should have 'create_file_upload' method"
+        assert hasattr(streaming, 'create_file_download'), "Streaming API should have 'create_file_download' method"
+        assert hasattr(streaming, 'create_chunk_upload'), "Streaming API should have 'create_chunk_upload' method"
+        
+        # Verify streaming API configuration
+        assert streaming.max_concurrency == sdk.max_concurrency, f"Expected max_concurrency {sdk.max_concurrency}, got {streaming.max_concurrency}"
+        assert streaming.block_part_size == sdk.block_part_size, f"Expected block_part_size {sdk.block_part_size}, got {streaming.block_part_size}"
+        assert streaming.use_connection_pool == sdk.use_connection_pool, f"Expected use_connection_pool {sdk.use_connection_pool}, got {streaming.use_connection_pool}"
+        
+        logging.info("✓ Streaming API initialized successfully")
+        logging.info(f"  Max concurrency: {streaming.max_concurrency}")
+        logging.info(f"  Block part size: {streaming.block_part_size}")
+        logging.info(f"  Connection pool: {streaming.use_connection_pool}")
+        logging.info(f"  Assertion checks passed for streaming API")
+        
         return True
+    except AssertionError as e:
+        logging.error(f"Assertion failed in streaming API test: {str(e)}")
+        return False
     except Exception as e:
         logging.error(f"Error initializing streaming API: {str(e)}")
         return False
