@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
 
-from .common import SDKError
+from .config import SDKError
 from .model import (
     FileMeta, FileListItem, Chunk, FileUpload, FileDownload, FileBlockUpload, 
     FileChunkUpload, AkaveBlockData, FilecoinBlockData, FileBlockDownload, FileChunkDownload,

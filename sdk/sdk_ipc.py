@@ -11,7 +11,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from datetime import datetime
 import grpc 
 
-from .common import MIN_BUCKET_NAME_LENGTH, SDKError, BLOCK_SIZE, ENCRYPTION_OVERHEAD
+from .config import MIN_BUCKET_NAME_LENGTH, SDKError, BLOCK_SIZE, ENCRYPTION_OVERHEAD
 from .erasure_code import ErasureCode
 from .dag import DAGRoot, build_dag, extract_block_data
 from .connection import ConnectionPool

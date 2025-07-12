@@ -14,7 +14,7 @@ if PB_PATH not in sys.path:
     sys.path.append(PB_PATH)
 # Import SDK classes using absolute imports
 from sdk.sdk import SDK, BucketCreateResult, Bucket
-from sdk.common import SDKError
+from sdk.config import SDKError
 from sdk.sdk_streaming import StreamingAPI
 from sdk.sdk_ipc import IPC
 from sdk.erasure_code import ErasureCode

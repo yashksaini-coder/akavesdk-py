@@ -2,7 +2,7 @@ import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
 import logging
 from private.pb import nodeapi_pb2, nodeapi_pb2_grpc, ipcnodeapi_pb2, ipcnodeapi_pb2_grpc
-from private.ipc.client import Client, Config
+from private.ipc.client import Client
 from private.spclient.spclient import SPClient
 from private.encryption import derive_key
 from typing import List, Optional
@@ -10,7 +10,7 @@ from multiformats.cid import CID
 from .sdk_ipc import IPC
 from .sdk_streaming import StreamingAPI
 from .erasure_code import ErasureCode
-from .common import SDKError, BLOCK_SIZE, MIN_BUCKET_NAME_LENGTH
+from .config import Config, SDKError, BLOCK_SIZE, MIN_BUCKET_NAME_LENGTH
 import os
 import time
 

@@ -473,7 +473,7 @@ class BucketTestRunner:
                 logger.warning(f"⚠️ File still exists after deletion: {file_info_after.name}")
                 print(f"⚠️ File still exists after deletion: {file_info_after.name}")
                 # This might happen due to blockchain timing - not necessarily a failure
-                return True
+                return False
                 
         except Exception as e:
             logger.error(f"File delete test failed: {e}")

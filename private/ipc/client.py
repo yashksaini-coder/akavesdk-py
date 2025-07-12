@@ -5,22 +5,12 @@ from web3.middleware import ExtraDataToPOAMiddleware
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
 from .contracts import StorageContract, AccessManagerContract
+from sdk.config import Config
 
 class TransactionFailedError(Exception):
     """Raised when a transaction fails (receipt status is 0)."""
     pass
 
-class Config:
-    """Configuration for the Ethereum storage contract client."""
-    def __init__(self, dial_uri: str, private_key: str, storage_contract_address: str, access_contract_address: Optional[str] = None):
-        self.dial_uri = dial_uri
-        self.private_key = private_key
-        self.storage_contract_address = storage_contract_address
-        self.access_contract_address = access_contract_address
-
-    @staticmethod
-    def default():
-        return Config(dial_uri="", private_key="", storage_contract_address="", access_contract_address="")
 
 class Client:
     """Represents the Ethereum storage client."""
