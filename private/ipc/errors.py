@@ -1,17 +1,7 @@
 import web3
-from typing import Dict, Optional, List
+from typing import Dict, Optional
+from sdk.config import _KNOWN_ERROR_STRINGS, validate_hex_string
 
-# List of known error strings from the smart contracts
-# Replace these with the actual error strings from your contracts
-_KNOWN_ERROR_STRINGS: List[str] = [
-    "Storage: bucket doesn't exist",
-    "Storage: bucket exists",
-    "Storage: file doesn't exist",
-    "Storage: file exists",
-    "AccessManager: caller is not the owner",
-    "AccessManager: caller is not authorized",
-    # Add all other known error strings here...
-]
 
 # Dictionary to store the mapping from error hash (selector) to error string
 _error_hash_to_error_map: Dict[str, str] = {}
@@ -59,8 +49,7 @@ def error_hash_to_error(error_data: str) -> Optional[str]:
         print("Warning: Error hashes not parsed yet. Parsing now.") # Optional: logging
         parse_errors_to_hashes()
         
-    if not isinstance(error_data, str) or not error_data.startswith('0x') or len(error_data) < 10:
-        # Basic validation: expect hex string like '0x' + 8 hex chars (4 bytes) minimum
+    if not isinstance(error_data, str) or validate_hex_string(error_data):
         return None 
 
     # Extract the selector (first 4 bytes after '0x')

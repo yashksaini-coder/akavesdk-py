@@ -1,6 +1,6 @@
 import web3
 from typing import Dict, Optional, List
-from sdk.config import _KNOWN_ERROR_STRINGS
+from sdk.config import _KNOWN_ERROR_STRINGS,validate_hex_string
 
 # Dictionary to store the mapping from error hash (selector) to error string
 _error_hash_to_error_map: Dict[str, str] = {}
@@ -47,10 +47,9 @@ def error_hash_to_error(error_data: str) -> Optional[str]:
         # Ensure hashes are parsed if accessed before explicit call
         print("Warning: Error hashes not parsed yet. Parsing now.") # Optional: logging
         parse_errors_to_hashes()
-        
-    if not isinstance(error_data, str) or not error_data.startswith('0x') or len(error_data) < 10:
-        # Basic validation: expect hex string like '0x' + 8 hex chars (4 bytes) minimum
-        return None 
+
+    if not isinstance(error_data, str) or not validate_hex_string(error_data):
+        return None
 
     # Extract the selector (first 4 bytes after '0x')
     selector = error_data[:10] # Takes '0x' + 8 hex characters

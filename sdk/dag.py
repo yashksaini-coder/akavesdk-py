@@ -35,10 +35,8 @@ except ImportError:
 
 from private.encryption.encryption import encrypt
 from .model import FileBlockUpload
+from .config import DAG_PB_CODEC, RAW_CODEC, DEFAULT_CID_VERSION
 
-DEFAULT_CID_VERSION = 1
-DAG_PB_CODEC = 0x70
-RAW_CODEC = 0x55
 
 class DAGError(Exception):
     pass
