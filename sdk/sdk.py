@@ -68,28 +68,18 @@ class SDK:
         self.ipc_client = None
         self.sp_client = None
         self.streaming_erasure_code = None
+        self.config = config
 
-        self.max_concurrency = config.max_concurrency
-        self.block_part_size = config.block_part_size
-        self.use_connection_pool = config.use_connection_pool
-        self.private_key = config.private_key
         self.encryption_key = config.encryption_key or []
-        self.streaming_max_blocks_in_chunk = config.streaming_max_blocks_in_chunk
-        self.parity_blocks_count = config.parity_blocks_count
         self.ipc_address = config.ipc_address or config.address  # Use provided IPC address or fallback to main address
-        self.connection_timeout = config.connection_timeout
-        self.max_retries = config.max_retries
-        self.backoff_delay = config.backoff_delay
-        
-
         self._contract_info = None
 
-        if self.block_part_size <= 0 or self.block_part_size > BLOCK_SIZE:
+        if self.config.block_part_size <= 0 or self.config.block_part_size > BLOCK_SIZE:
             raise SDKError(f"Invalid blockPartSize: {config.block_part_size}. Valid range is 1-{BLOCK_SIZE}")
 
         # Create gRPC channel and clients for SDK operations
         self.conn = grpc.insecure_channel(config.address)
-        self.bucket_client = BucketClient(self.conn, self.connection_timeout)
+        self.bucket_client = BucketClient(self.conn, self.config.connection_timeout)
         
         # Create separate gRPC channel for IPC operations if needed
         if self.ipc_address == config.address:
@@ -101,14 +91,14 @@ class SDK:
         
         self.ipc_client = ipcnodeapi_pb2_grpc.IPCNodeAPIStub(self.ipc_conn)
 
-        if len(self.encryption_key) != 0 and len(self.encryption_key) != 32:
+        if len(self.config.encryption_key) != 0 and len(self.config.encryption_key) != 32:
             raise SDKError("Encryption key length should be 32 bytes long")
 
-        if self.parity_blocks_count > self.streaming_max_blocks_in_chunk // 2:
-            raise SDKError(f"Parity blocks count {self.parity_blocks_count} should be <= {self.streaming_max_blocks_in_chunk // 2}")
+        if self.config.parity_blocks_count > self.config.streaming_max_blocks_in_chunk // 2:
+            raise SDKError(f"Parity blocks count {self.config.parity_blocks_count} should be <= {self.config.streaming_max_blocks_in_chunk // 2}")
 
-        if self.parity_blocks_count > 0:
-            self.streaming_erasure_code = ErasureCode(self.streaming_max_blocks_in_chunk - self.parity_blocks_count, self.parity_blocks_count)
+        if self.config.parity_blocks_count > 0:
+            self.streaming_erasure_code = ErasureCode(self.config.streaming_max_blocks_in_chunk - self.config.parity_blocks_count, self.config.parity_blocks_count)
 
         self.sp_client = SPClient()
 
@@ -159,11 +149,11 @@ class SDK:
             conn=self.conn,
             client=nodeapi_pb2_grpc.StreamAPIStub(self.conn),
             erasure_code=self.streaming_erasure_code,
-            max_concurrency=self.max_concurrency,
-            block_part_size=self.block_part_size,
-            use_connection_pool=self.use_connection_pool,
-            encryption_key=self.encryption_key,
-            max_blocks_in_chunk=self.streaming_max_blocks_in_chunk
+            max_concurrency=self.config.max_concurrency,
+            block_part_size=self.config.block_part_size,
+            use_connection_pool=self.config.use_connection_pool,
+            encryption_key=self.config.encryption_key,
+            max_blocks_in_chunk=self.config.streaming_max_blocks_in_chunk
         )
 
     def ipc(self):
@@ -175,12 +165,12 @@ class SDK:
             if not conn_params:
                 raise SDKError("Could not fetch contract information from any Akave node")
             
-            if not self.private_key:
+            if not self.config.private_key:
                 raise SDKError("Private key is required for IPC operations")
             
             config = Config(
                 dial_uri=conn_params['dial_uri'],
-                private_key=self.private_key,
+                private_key=self.config.private_key,
                 storage_contract_address=conn_params['contract_address'],
                 access_contract_address=conn_params.get('access_address', '')
             )
@@ -210,11 +200,7 @@ class SDK:
                 client=self.ipc_client,
                 conn=self.ipc_conn,  # Use the IPC connection
                 ipc_instance=ipc_instance,
-                max_concurrency=self.max_concurrency,
-                block_part_size=self.block_part_size,
-                use_connection_pool=self.use_connection_pool,
-                encryption_key=self.encryption_key,
-                max_blocks_in_chunk=self.streaming_max_blocks_in_chunk
+                config=self.config
             )
         except Exception as e:
             raise SDKError(f"Failed to initialize IPC API: {str(e)}")

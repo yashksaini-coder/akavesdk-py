@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import grpc
 from google.protobuf.timestamp_pb2 import Timestamp
 
-from .config import SDKError, BlockSize, EncryptionOverhead
+from .config import SDKError, SDKConfig, BlockSize, EncryptionOverhead
 from .model import (
     FileMeta, FileListItem, Chunk, FileUpload, FileDownload, FileBlockUpload, 
     FileChunkUpload, AkaveBlockData, FilecoinBlockData, FileBlockDownload, FileChunkDownload,
@@ -122,23 +122,18 @@ class StreamingAPI:
         self, 
         conn: grpc.Channel, 
         client: Any,
-        erasure_code: Optional[ErasureCode] = None, 
-        max_concurrency: int = 10,
-        block_part_size: int = 1024 * 1024, 
-        use_connection_pool: bool = True,
-        encryption_key: Optional[bytes] = None, 
-        max_blocks_in_chunk: int = 32
+        config: SDKConfig
     ) -> None:
         
         self.client = client
         self.conn = conn
         self.sp_client: SPClient = SPClient()
-        self.erasure_code = erasure_code
-        self.max_concurrency = max_concurrency
-        self.block_part_size = block_part_size
-        self.use_connection_pool = use_connection_pool
-        self.encryption_key = encryption_key if encryption_key else b''
-        self.max_blocks_in_chunk = max_blocks_in_chunk
+        self.erasure_code = config.erasure_code
+        self.max_concurrency = config.max_concurrency
+        self.block_part_size = config.block_part_size
+        self.use_connection_pool = config.use_connection_pool
+        self.encryption_key = config.encryption_key if config.encryption_key else b''
+        self.max_blocks_in_chunk = config.streaming_max_blocks_in_chunk
     
     def file_info(self, ctx: Any, bucket_name: str, file_name: str) -> FileMeta:
         if bucket_name == "":

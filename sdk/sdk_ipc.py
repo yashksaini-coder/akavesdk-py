@@ -11,7 +11,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 from datetime import datetime
 import grpc 
 
-from .config import MIN_BUCKET_NAME_LENGTH, SDKError, BLOCK_SIZE, ENCRYPTION_OVERHEAD
+from .config import MIN_BUCKET_NAME_LENGTH, SDKError, SDKConfig, BLOCK_SIZE, ENCRYPTION_OVERHEAD
 from .erasure_code import ErasureCode
 from .dag import DAGRoot, build_dag, extract_block_data
 from .connection import ConnectionPool
@@ -127,17 +127,17 @@ def to_ipc_proto_chunk(chunk_cid, index: int, size: int, blocks):
     return cids, sizes, proto_chunk, None
 
 class IPC:
-    def __init__(self, client, conn, ipc_instance, max_concurrency, block_part_size, use_connection_pool, encryption_key=None, max_blocks_in_chunk=32, erasure_code=None, chunk_buffer=10):
+    def __init__(self, client, conn, ipc_instance, config: SDKConfig):
         self.client = client
         self.conn = conn
         self.ipc = ipc_instance
-        self.max_concurrency = max_concurrency
-        self.block_part_size = block_part_size
-        self.use_connection_pool = use_connection_pool
-        self.encryption_key = encryption_key if encryption_key else b''
-        self.max_blocks_in_chunk = max_blocks_in_chunk
-        self.erasure_code = erasure_code
-        self.chunk_buffer = chunk_buffer
+        self.max_concurrency = config.max_concurrency
+        self.block_part_size = config.block_part_size
+        self.use_connection_pool = config.use_connection_pool
+        self.encryption_key = config.encryption_key if config.encryption_key else b''
+        self.max_blocks_in_chunk = config.streaming_max_blocks_in_chunk
+        self.erasure_code = config.erasure_code
+        self.chunk_buffer = config.chunk_buffer
 
     def create_bucket(self, ctx, name: str) -> IPCBucketCreateResult:
         if len(name) < MIN_BUCKET_NAME_LENGTH:
