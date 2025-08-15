@@ -70,7 +70,7 @@ class SDK:
         self.streaming_erasure_code = None
         self.config = config
 
-        self.encryption_key = config.encryption_key or []
+        self.config.encryption_key = config.encryption_key or []
         self.ipc_address = config.ipc_address or config.address  # Use provided IPC address or fallback to main address
         self._contract_info = None
 

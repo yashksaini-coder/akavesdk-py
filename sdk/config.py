@@ -91,16 +91,16 @@ KNOWN_ERROR_STRINGS: List[str] = [
 @dataclass
 class SDKConfig:
     address: str
-    ipc_address: Optional[str] = None
     max_concurrency: int
     block_part_size: int
     use_connection_pool: bool
+    parity_blocks_count: int = 0
+    chunk_buffer: int = 10
     encryption_key: Optional[bytes] = None
     private_key: Optional[str] = None
     streaming_max_blocks_in_chunk: int = 32
-    parity_blocks_count: int = 0
-    connection_timeout: Optional[int] = 10
+    connection_timeout: Optional[int] = 30
     max_retries: Optional[int] = 3
     backoff_delay: Optional[int] = 1
-    chunk_buffer: int = 10
+    ipc_address: Optional[str] = None
     erasure_code: Optional[ErasureCode] = None

@@ -1,12 +1,11 @@
 import grpc
-import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, TypeVar
+from private.pb import nodeapi_pb2_grpc, nodeapi_pb2
+from private.encryption import derive_key
 
 from .config import SDKError, MIN_BUCKET_NAME_LENGTH
-from . import nodeapi_pb2_grpc, nodeapi_pb2
-from private.encryption import derive_key
 from .shared.grpc_base import GrpcClientBase
 
 T = TypeVar("T")  # Generic return type for gRPC calls

@@ -59,18 +59,22 @@ export AKAVE_PRIVATE_KEY="$(cat ~/.key/user.akvf.key)"
 ### Direct initialization
 
 ```python
-from akavesdk import SDK
+from akavesdk import SDK, SDKConfig
 
-# Initialize with explicit parameters
-sdk = SDK(
+# Configuration
+config = SDKConfig(
     address="connect.akave.ai:5000",  # Akave endpoint for streaming operations
     max_concurrency=10,
     block_part_size=1 * 1024 * 1024,  # 1MB
     use_connection_pool=True,
     private_key="your_ethereum_private_key",  # Required for IPC API operations
     encryption_key=b"your_32_byte_encryption_key",  # Optional, for file encryption
-    ipc_address="connect.akave.ai:5500"  # Akave endpoint for IPC operations (optional)
+    ipc_address="connect.akave.ai:5500",  # Akave endpoint for IPC operations (optional)
+    connection_timeout = 30 # 30 seconds (optional) 
 )
+
+# Initialize with explicit parameters
+sdk = SDK(config)
 ```
 
 ### Getting credentials
@@ -90,16 +94,20 @@ You can check your transactions on the [Akave Blockchain Explorer](https://explo
 The IPC API is the recommended approach for interacting with Akave's decentralized storage. It provides access to Akave's smart contracts, enabling secure, blockchain-based bucket and file operations.
 
 ```python
-from akavesdk import SDK
+import os
+from akavesdk import SDK, SDKConfig, SDKError
 
 # Initialize the SDK with a private key
-sdk = SDK(
+config  = SDKConfig(
     address="connect.akave.ai:5500",
     max_concurrency=10,
     block_part_size=1 * 1024 * 1024,  # 1MB
     use_connection_pool=True,
-    private_key=os.environ.get("AKAVE_PRIVATE_KEY")  # Required for IPC operations
+    private_key=os.environ.get("AKAVE_PRIVATE_KEY"),  # Required for IPC operations
+    connection_timeout=30 # 30 seconds (optional)
 )
+
+sdk = SDK(config)
 
 try:
     # Get IPC API interface
@@ -133,6 +141,12 @@ try:
     # Delete a bucket
     ipc.delete_bucket({}, "my-bucket")
     print("Bucket deleted successfully")
+except SDKError as e:
+    # handle sdk exception
+    pass
+except Exception as e:
+    # handle generic exception
+    pass
 finally:
     # Always close the connection when done
     sdk.close()
@@ -141,15 +155,17 @@ finally:
 ### Streaming API Usage
 
 ```python
-from akavesdk import SDK
+from akavesdk import SDK, SDKError
 
-# Initialize the SDK
-sdk = SDK(
+config = SDKConfig(
     address="connect.akave.ai:5500",
     max_concurrency=10,
     block_part_size=1 * 1024 * 1024,  # 1MB
     use_connection_pool=True
 )
+
+# Initialize the SDK
+sdk = SDK(config)
 
 try:
     # Get streaming API
@@ -163,6 +179,12 @@ try:
     # Get file info
     file_info = streaming.file_info({}, "my-bucket", "my-file.txt")
     print(f"File info: {file_info}")
+except SDKError as e:
+    # handle sdk exception
+    pass
+except Exception as e:
+    # handle generic exception
+    pass
 finally:
     sdk.close()
 ```
