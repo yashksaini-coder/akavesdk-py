@@ -8,8 +8,7 @@ if PRIVATE_PATH not in sys.path:
     sys.path.append(PRIVATE_PATH)
 
 # Import and expose main SDK classes
-from sdk.sdk import SDK, SDKError, SDKConfig
-from sdk.bucket_client import BucketCreateResult, Bucket
+from sdk.sdk import SDK, BucketCreateResult, Bucket, SDKError, SDKConfig
 from sdk.sdk_streaming import StreamingAPI
 from sdk.sdk_ipc import IPC
 from sdk.erasure_code import ErasureCode
