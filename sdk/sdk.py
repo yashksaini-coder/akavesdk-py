@@ -3,13 +3,17 @@ import logging
 from private.pb import nodeapi_pb2, nodeapi_pb2_grpc, ipcnodeapi_pb2, ipcnodeapi_pb2_grpc
 from private.ipc.client import Client
 from private.spclient.spclient import SPClient
-from typing import Optional
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional, Callable, TypeVar
 from .sdk_ipc import IPC
 from .sdk_streaming import StreamingAPI
 from .erasure_code import ErasureCode
 from .config import Config, SDKConfig, SDKError, BLOCK_SIZE, MIN_BUCKET_NAME_LENGTH
-from .bucket_client import BucketClient
+from private.encryption import derive_key
+from .shared.grpc_base import GrpcClientBase
 import time
+
 
 class AkaveContractFetcher:
     """Fetches contract addresses from Akave node"""
@@ -61,7 +65,21 @@ class AkaveContractFetcher:
         if self.channel:
             self.channel.close()
 
-class SDK:
+
+T = TypeVar("T")  # Generic return type for gRPC calls
+
+@dataclass
+class BucketCreateResult:
+    name: str
+    created_at: datetime
+
+
+@dataclass
+class Bucket:
+    name: str
+    created_at: datetime
+
+class SDK():
     def __init__(self, config: SDKConfig):
         self.conn = None
         self.ipc_conn = None
@@ -69,6 +87,7 @@ class SDK:
         self.sp_client = None
         self.streaming_erasure_code = None
         self.config = config
+        self._grpc_base = GrpcClientBase(self.config.connection_timeout)
 
         self.config.encryption_key = config.encryption_key or []
         self.ipc_address = config.ipc_address or config.address  # Use provided IPC address or fallback to main address
@@ -79,8 +98,8 @@ class SDK:
 
         # Create gRPC channel and clients for SDK operations
         self.conn = grpc.insecure_channel(config.address)
-        self.bucket_client = BucketClient(self.conn, self.config.connection_timeout)
-        
+        self.client = nodeapi_pb2_grpc.NodeAPIStub(self.conn)
+       
         # Create separate gRPC channel for IPC operations if needed
         if self.ipc_address == config.address:
             # Reuse main connection for IPC
@@ -204,12 +223,52 @@ class SDK:
             )
         except Exception as e:
             raise SDKError(f"Failed to initialize IPC API: {str(e)}")
-
-    def create_bucket(self, name: str):
-        return self.bucket_client.bucket_create(name)
     
-    def view_bucket(self, name: str):
-        return self.bucket_client.bucket_view(name)
+    def _validate_bucket_name(self, name: str, method_name: str) -> None:
+        if not name or len(name) < MIN_BUCKET_NAME_LENGTH:
+            raise SDKError(
+                f"{method_name}: Invalid bucket name '{name}'. "
+                f"Must be at least {MIN_BUCKET_NAME_LENGTH} characters "
+                f"(got {len(name) if name else 0})."
+            )
+    def _do_grpc_call(self, method_name: str, grpc_method: Callable[..., T], request) -> T:
+        try:
+            return grpc_method(request, timeout=self.config.connection_timeout)
+        except grpc.RpcError as e:
+            self._grpc_base._handle_grpc_error(method_name, e)
+            raise  # for making type checkers happy
+
+    def create_bucket(self, name: str) -> BucketCreateResult:
+        self._validate_bucket_name(name, "BucketCreate")
+        request = nodeapi_pb2.BucketCreateRequest(name=name)
+        response = self._do_grpc_call("BucketCreate", self.client.BucketCreate, request)
+        return BucketCreateResult(
+            name=response.name,
+            created_at=parse_timestamp(response.created_at)
+        )
+    
+    def view_bucket(self, name: str)-> Bucket:
+        self._validate_bucket_name(name, "BucketView")
+        request = nodeapi_pb2.BucketViewRequest(bucket_name=name)
+        response = self._do_grpc_call("BucketView", self.client.BucketView, request)
+        return Bucket(
+            name=response.name,
+            created_at=parse_timestamp(response.created_at)
+        )
     
     def delete_bucket(self, name: str):
-        return self.bucket_client.bucket_delete(name)
+        self._validate_bucket_name(name, "BucketDelete")
+        request = nodeapi_pb2.BucketDeleteRequest(name=name)
+        self._do_grpc_call("BucketDelete", self.client.BucketDelete, request)
+        return True
+    
+def encryption_key_derivation(parent_key: bytes, *info_data: str) -> bytes:
+    if not parent_key:
+        raise SDKError("Parent key is required for key derivation")
+    info = "/".join(info_data)
+    return derive_key(parent_key, info.encode())
+
+def parse_timestamp(ts) -> Optional[datetime]:
+    if ts is None:
+        return None
+    return ts.AsTime() if hasattr(ts, "AsTime") else ts
