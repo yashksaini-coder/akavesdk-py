@@ -252,7 +252,7 @@ class StreamingAPI:
                 chunk_upload = self._create_chunk_upload(ctx, upload, chunk_index, file_enc_key, buf[:n])
                 
                 # Add link to DAG root
-                self._add_dag_link(dag_root, chunk_upload.ChunkCID, chunk_upload.RawDataSize, chunk_upload.ProtoNodeSize)
+                self._add_dag_link(dag_root, chunk_upload.chunk_cid, chunk_upload.raw_data_size, chunk_upload.encoded_size)
                 
                 # Upload chunk
                 self._upload_chunk(ctx, chunk_upload)
@@ -497,9 +497,8 @@ class StreamingAPI:
                 stream_id=file_upload.stream_id,
                 index=index,
                 chunk_cid=chunk_dag.cid,
-                actual_size=size,
                 raw_data_size=chunk_dag.raw_data_size,
-                proto_node_size=chunk_dag.proto_node_size,
+                encoded_size=chunk_dag.proto_node_size,  # proto_node_size maps to encoded_size
                 blocks=blocks
             )
         except Exception as err:
@@ -515,7 +514,7 @@ class StreamingAPI:
                     file_chunk_upload.stream_id,
                     file_chunk_upload.chunk_cid.string() if hasattr(file_chunk_upload.chunk_cid, 'string') else str(file_chunk_upload.chunk_cid),
                     file_chunk_upload.index,
-                    file_chunk_upload.actual_size,
+                    file_chunk_upload.encoded_size,  # Use encoded_size instead of actual_size
                     file_chunk_upload.blocks
                 )
                 
