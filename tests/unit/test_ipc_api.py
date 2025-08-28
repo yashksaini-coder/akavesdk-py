@@ -250,6 +250,97 @@ class TestIPCAPI(unittest.TestCase):
             mock_file_index
         )
     
+    def test_file_delete_bucket_not_found(self):
+        """Test file deletion when bucket does not exist."""
+        # Arrange
+        bucket_name = "test-bucket"
+        file_name = "test-file.txt"
+        
+        # Mock bucket retrieval to return None (bucket not found)
+        self.mock_ipc_instance.storage.get_bucket_by_name.return_value = None
+        
+        # Act & Assert
+        with self.assertRaises(SDKError) as context:
+            self.ipc_api.file_delete(None, bucket_name, file_name)
+        
+        self.assertIn("failed to retrieve bucket - bucket does not exist", str(context.exception))
+    
+    def test_file_delete_file_not_found(self):
+        """Test file deletion when file does not exist."""
+        # Arrange
+        bucket_name = "test-bucket"
+        file_name = "test_file.txt"
+        
+        # Mock bucket retrieval to succeed but file retrieval to fail
+        mock_bucket = [b"bucket_id_123"]
+        self.mock_ipc_instance.storage.get_bucket_by_name.return_value = mock_bucket
+        self.mock_ipc_instance.storage.get_file_by_name.return_value = None
+        
+        # Act & Assert
+        with self.assertRaises(SDKError) as context:
+            self.ipc_api.file_delete(None, bucket_name, file_name)
+        
+        self.assertIn("failed to retrieve file - file does not exist", str(context.exception))
+    
+    def test_file_delete_index_retrieval_fails(self):
+        """Test file deletion when file index retrieval fails."""
+        # Arrange
+        bucket_name = "test-bucket"
+        file_name = "test_file.txt"
+        
+        # Mock bucket and file retrieval to succeed but index retrieval to fail
+        mock_bucket = [b"bucket_id_123"]
+        mock_file = [b"file_id_456"]
+        self.mock_ipc_instance.storage.get_bucket_by_name.return_value = mock_bucket
+        self.mock_ipc_instance.storage.get_file_by_name.return_value = mock_file
+        self.mock_ipc_instance.storage.get_file_index_by_id.side_effect = Exception("Contract call failed")
+        
+        # Act & Assert
+        with self.assertRaises(SDKError) as context:
+            self.ipc_api.file_delete(None, bucket_name, file_name)
+        
+        self.assertIn("failed to retrieve file index", str(context.exception))
+    
+    def test_file_delete_invalid_index(self):
+        """Test file deletion when invalid index is returned."""
+        # Arrange
+        bucket_name = "test-bucket"
+        file_name = "test_file.txt"
+        
+        # Mock all retrievals to succeed but return invalid index
+        mock_bucket = [b"bucket_id_123"]
+        mock_file = [b"file_id_456"]
+        self.mock_ipc_instance.storage.get_bucket_by_name.return_value = mock_bucket
+        self.mock_ipc_instance.storage.get_file_by_name.return_value = mock_file
+        self.mock_ipc_instance.storage.get_file_index_by_id.return_value = -1  # Invalid index
+        
+        # Act & Assert
+        with self.assertRaises(SDKError) as context:
+            self.ipc_api.file_delete(None, bucket_name, file_name)
+        
+        self.assertIn("invalid file index returned from contract", str(context.exception))
+    
+    def test_file_delete_delete_transaction_fails(self):
+        """Test file deletion when the delete transaction fails."""
+        # Arrange
+        bucket_name = "test-bucket"
+        file_name = "test_file.txt"
+        
+        # Mock all retrievals to succeed but delete transaction to fail
+        mock_bucket = [b"bucket_id_123"]
+        mock_file = [b"file_id_456"]
+        mock_file_index = 0
+        self.mock_ipc_instance.storage.get_bucket_by_name.return_value = mock_bucket
+        self.mock_ipc_instance.storage.get_file_by_name.return_value = mock_file
+        self.mock_ipc_instance.storage.get_file_index_by_id.return_value = mock_file_index
+        self.mock_ipc_instance.storage.delete_file.side_effect = Exception("Transaction failed")
+        
+        # Act & Assert
+        with self.assertRaises(SDKError) as context:
+            self.ipc_api.file_delete(None, bucket_name, file_name)
+        
+        self.assertIn("failed to delete file", str(context.exception))
+    
     def test_file_delete_empty_names(self):
         """Test file deletion with empty bucket or file name."""
         with self.assertRaises(SDKError) as context:
@@ -266,7 +357,7 @@ class TestIPCAPI(unittest.TestCase):
         """Test successful file upload creation."""
         # Arrange
         bucket_name = "test-bucket"
-        file_name = "test-file.txt"
+        file_name = "test_file.txt"
         
         # Mock the bucket retrieval and create_file call
         mock_bucket = [b"bucket_id_123"]  # bytes32 bucket ID

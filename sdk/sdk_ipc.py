@@ -364,18 +364,22 @@ class IPC:
             raise SDKError(f"empty bucket or file name. Bucket: '{bucket_name}', File: '{file_name}'")
 
         try:
+            # Note: The current contract implementation doesn't support metadata encryption
+            # If encryption is needed, it should be implemented similar to the Go SDK
             encrypted_file_name = file_name
             encrypted_bucket_name = bucket_name
             
+            # Get bucket information
             bucket = self.ipc.storage.get_bucket_by_name(
                 {"from": self.ipc.auth.address},
                 encrypted_bucket_name
             )
             if not bucket:
-                raise SDKError("failed to retrieve bucket")
+                raise SDKError("failed to retrieve bucket - bucket does not exist")
             
             bucket_id = bucket[0]  # bytes32 id
             
+            # Get file information
             file_info = self.ipc.storage.get_file_by_name(
                 {}, 
                 bucket_id,
@@ -385,13 +389,26 @@ class IPC:
                 raise SDKError("failed to retrieve file - file does not exist")
             
             file_id = file_info[0]  # bytes32 file ID
-            file_index = self.ipc.storage.get_file_index_by_id(
-                {},
-                bucket_name,
-                file_id 
-            )
+            
+            # Get file index - this is the key fix
+            # The current contract returns just the index as uint256
+            # If the file doesn't exist, this call will revert
+            try:
+                file_index = self.ipc.storage.get_file_index_by_id(
+                    {"from": self.ipc.auth.address},
+                    bucket_name,
+                    file_id 
+                )
+            except Exception as index_err:
+                raise SDKError(f"failed to retrieve file index - file may not exist: {index_err}")
+            
+            # Validate that we got a valid index
+            if file_index is None or file_index < 0:
+                raise SDKError("invalid file index returned from contract")
             
             logging.info(f"Deleting file with file_id: {file_id.hex() if isinstance(file_id, bytes) else file_id}, bucket_id: {bucket_id.hex() if isinstance(bucket_id, bytes) else bucket_id}, name: {encrypted_file_name}, index: {file_index}")
+            
+            # Delete the file
             tx_hash = self.ipc.storage.delete_file(
                 self.ipc.auth,          
                 file_id,                
@@ -403,6 +420,9 @@ class IPC:
             logging.info(f"IPC file_delete transaction successful for '{file_name}' in bucket '{bucket_name}', tx_hash: {tx_hash}")
             return None
             
+        except SDKError:
+            # Re-raise SDK errors as-is
+            raise
         except Exception as err:
             logging.error(f"IPC file_delete failed: {err}")
             raise SDKError(f"failed to delete file: {err}")
