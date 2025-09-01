@@ -1,11 +1,3 @@
-# Copyright (C) 2024 Akave
-# See LICENSE for copying information.
-
-"""
-Module containing data model classes for the Akave SDK.
-These classes are the Python equivalent of Go structs from model.go.
-"""
-
 import time
 from typing import List, Optional, Union, Any, NewType
 from dataclasses import dataclass
@@ -13,8 +5,6 @@ from datetime import datetime
 
 from multiformats.cid import CID as CIDType
 
-
-# Type for timestamp fields that could be different formats
 TimestampType = Union[datetime, float, int]
 
 @dataclass
@@ -59,9 +49,9 @@ class FileBlockUpload:
     """A piece of metadata of some file used for upload."""
     cid: str
     data: bytes
+    permit: str = ""
     node_address: str = ""
     node_id: str = ""
-    permit: bytes = b""
 
     # Alias properties for backwards compatibility with uppercase naming
     @property
@@ -101,6 +91,8 @@ class FileListItem:
     name: str
     size: int
     created_at: TimestampType
+    data_blocks: int = 0
+    total_blocks: int = 0
 
 
 @dataclass
@@ -110,6 +102,8 @@ class FileUpload:
     name: str
     stream_id: str
     created_at: TimestampType
+    data_blocks: int = 0
+    total_blocks: int = 0
 
 
 @dataclass
@@ -117,10 +111,9 @@ class FileChunkUpload:
     """Contains single file chunk meta information."""
     stream_id: str
     index: int
-    chunk_cid: Any  # Now using proper CID type
-    actual_size: int
-    raw_data_size: int
-    proto_node_size: int
+    chunk_cid: CIDType
+    raw_data_size: int  # uint64 in Go
+    encoded_size: int   # uint64 in Go
     blocks: List[FileBlockUpload]
 
 
@@ -131,6 +124,8 @@ class FileDownload:
     bucket_name: str
     name: str
     chunks: List[Chunk]
+    data_blocks: int = 0
+    total_blocks: int = 0
 
 
 @dataclass
@@ -154,6 +149,8 @@ class FileMeta:
     size: int
     created_at: datetime
     committed_at: Optional[datetime] = None
+    data_blocks: int = 0
+    total_blocks: int = 0
 
 
 @dataclass
@@ -186,6 +183,7 @@ class IPCFileListItem:
     root_cid: str
     name: str
     encoded_size: int
+    actual_size: int
     created_at: TimestampType
 
 
@@ -196,6 +194,8 @@ class IPCFileMeta:
     name: str
     bucket_name: str
     encoded_size: int
+    actual_size: int
+    is_public: bool
     created_at: TimestampType
 
 
@@ -204,6 +204,7 @@ class IPCFileMetaV2:
     """Contains single file meta information."""
     root_cid: str
     bucket_name: str
+    name: str
     encoded_size: int
     size: int = 0
     created_at: Optional[TimestampType] = None
@@ -214,10 +215,10 @@ class IPCFileMetaV2:
 class IPCFileChunkUploadV2:
     """Contains single file chunk meta information."""
     index: int
-    chunk_cid: CIDType  # Now using proper CID type
+    chunk_cid: CIDType
     actual_size: int
-    raw_data_size: int
-    proto_node_size: int
+    raw_data_size: int  # uint64 in Go
+    encoded_size: int   # uint64 in Go
     blocks: List[FileBlockUpload]
     bucket_id: bytes  # 32-byte array in Go, using bytes in Python
     file_name: str
