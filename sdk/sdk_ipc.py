@@ -396,7 +396,7 @@ class IPC:
             try:
                 file_index = self.ipc.storage.get_file_index_by_id(
                     {"from": self.ipc.auth.address},
-                    bucket_name,
+                    encrypted_file_name,  # Contract expects file name, not bucket name
                     file_id 
                 )
             except Exception as index_err:

@@ -1341,11 +1341,11 @@ class StorageContract:
         else:
             return self.contract.functions.getFileByName(bucket_id, file_name).call()
 
-    def get_file_index_by_id(self, call_opts: dict, bucket_name: str, file_id: bytes):
+    def get_file_index_by_id(self, call_opts: dict, file_name: str, file_id: bytes):
         if call_opts:
-            return self.contract.functions.getFileIndexById(bucket_name, file_id).call(call_opts)
+            return self.contract.functions.getFileIndexById(file_name, file_id).call(call_opts)
         else:
-            return self.contract.functions.getFileIndexById(bucket_name, file_id).call()
+            return self.contract.functions.getFileIndexById(file_name, file_id).call()
 
     def is_file_filled(self, file_id: bytes) -> bool:
         """Returns info about file status.
