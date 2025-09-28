@@ -1,271 +1,91 @@
-"""
-Common test fixtures for Akave SDK unit tests.
-"""
+import pytest
+from unittest.mock import Mock, MagicMock
+import io
+import secrets
+from pathlib import Path
 
-import os
-import time
-from unittest.mock import MagicMock, Mock, patch
-from datetime import datetime
-from typing import Dict, Any, List, Optional
+@pytest.fixture
+def mock_sdk_config():
+    from sdk.config import SDKConfig
+    return SDKConfig(
+        address="mock.akave.ai:5500",
+        private_key="0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        max_concurrency=5,
+        block_part_size=128*1024,
+        use_connection_pool=True,
+        chunk_buffer=10
+    )
 
-import grpc
-from google.protobuf.timestamp_pb2 import Timestamp
+@pytest.fixture
+def mock_grpc_channel():
+    mock_channel = Mock()
+    mock_channel.close = Mock()
+    return mock_channel
 
-# Sample test data
-def sample_encryption_key() -> bytes:
-    """Returns a sample 32-byte encryption key for testing."""
-    return b'a' * 32
+@pytest.fixture
+def mock_ipc_client():
+    mock_client = Mock()
+    mock_client.auth = Mock()
+    mock_client.auth.address = "0x1234567890123456789012345678901234567890"
+    mock_client.auth.key = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+    
+    mock_client.storage = Mock()
+    mock_client.storage.contract_address = "0x1111111111111111111111111111111111111111"
+    mock_client.storage.get_chain_id = Mock(return_value=21207)
+    
+    return mock_client
 
-def sample_config_data() -> Dict[str, Any]:
-    """Returns sample configuration data for testing."""
+@pytest.fixture
+def sample_cid():
+    return "bafybeigweriqysuigpnsu3jmndgonrihee4dmx27rctlsd5mfn5arrnxyi"
+
+@pytest.fixture
+def sample_file_data():
     return {
-        "address": "localhost:5000",
-        "max_concurrency": 10,
-        "block_part_size": 1024 * 1024,
-        "use_connection_pool": True,
-        "encryption_key": sample_encryption_key(),
-        "private_key": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-        "max_blocks_in_chunk": 32
+        "small": b"Hello Akave!",
+        "medium": b"x" * 1024,  # 1KB
+        "large": b"y" * (1024 * 1024),  # 1MB
+        "binary": bytes(range(256))
     }
 
-def sample_bucket_data() -> Dict[str, Any]:
-    """Returns sample bucket data for testing."""
+@pytest.fixture
+def temp_test_file(tmp_path, sample_file_data):
+    file_path = tmp_path / "test_upload.bin"
+    file_path.write_bytes(sample_file_data["medium"])
+    return file_path
+
+@pytest.fixture
+def mock_file_reader(sample_file_data):
+    return io.BytesIO(sample_file_data["medium"])
+
+@pytest.fixture
+def mock_bucket_info():
     return {
+        "id": "984a6110b87ca4df9b8b7efa9fcf665fa2a674ad17f3b5b28a1b94848b683e4",
         "name": "test-bucket",
-        "id": "bucket_id_123",
-        "created_at": int(time.time()),
-        "owner_address": "0x1234567890abcdef"
+        "created_at": 1234567890,
+        "owner": "0x1234567890123456789012345678901234567890"
     }
 
-def sample_file_data() -> Dict[str, Any]:
-    """Returns sample file data for testing."""
+@pytest.fixture
+def mock_file_meta():
     return {
-        "name": "test-file.txt",
+        "root_cid": "bafybeigweriqysuigpnsu3jmndgonrihee4dmx27rctlsd5mfn5arrnxyi",
+        "name": "test-file.bin",
         "bucket_name": "test-bucket",
-        "root_cid": "QmTest123456789",
-        "encoded_size": 1024,
-        "size": 512,
-        "created_at": int(time.time()),
-        "stream_id": "stream_123",
-        "chunks": [
-            {
-                "cid": "QmChunk123",
-                "index": 0,
-                "encoded_size": 512,
-                "size": 256
-            }
-        ]
+        "size": 1024,
+        "encoded_size": 1200,
+        "created_at": 1234567890
     }
 
-# Mock factories
-def mock_grpc_channel() -> MagicMock:
-    """Creates a mock gRPC channel."""
-    channel = MagicMock()
-    channel.close = MagicMock()
-    return channel
+@pytest.fixture
+def generate_test_bucket_name():
+    def _generate():
+        return f"pytest-bucket-{secrets.token_hex(6)}"
+    return _generate
 
-def mock_node_api_client() -> MagicMock:
-    """Creates a mock NodeAPI client with standard responses."""
-    client = MagicMock()
-    
-    # Mock timestamp
-    mock_timestamp = MagicMock()
-    mock_timestamp.seconds = sample_bucket_data()["created_at"]
-    
-    # Mock bucket responses
-    bucket_response = MagicMock()
-    bucket_response.name = sample_bucket_data()["name"]
-    bucket_response.created_at = mock_timestamp
-    client.BucketCreate.return_value = bucket_response
-    client.BucketView.return_value = bucket_response
-    
-    bucket_list_response = MagicMock()
-    bucket_list_response.buckets = [bucket_response]
-    client.BucketList.return_value = bucket_list_response
-    
-    # Mock file responses
-    file_data = sample_file_data()
-    file_response = MagicMock()
-    file_response.file_name = file_data["name"]
-    file_response.bucket_name = file_data["bucket_name"]
-    file_response.root_cid = file_data["root_cid"]
-    file_response.encoded_size = file_data["encoded_size"]
-    file_response.created_at = mock_timestamp
-    
-    file_list_response = MagicMock()
-    file_list_response.list = [file_response]
-    client.FileList.return_value = file_list_response
-    
-    return client
-
-def mock_ipc_client() -> MagicMock:
-    """Creates a mock IPC client with standard responses."""
-    client = MagicMock()
-    
-    # Mock timestamp
-    mock_timestamp = MagicMock()
-    mock_timestamp.seconds = sample_bucket_data()["created_at"]
-    
-    # Mock bucket responses
-    bucket_response = MagicMock()
-    bucket_response.name = sample_bucket_data()["name"]
-    bucket_response.id = sample_bucket_data()["id"]
-    bucket_response.created_at = mock_timestamp
-    client.BucketView.return_value = bucket_response
-    
-    bucket_list_response = MagicMock()
-    bucket_list_response.buckets = [bucket_response]
-    client.BucketList.return_value = bucket_list_response
-    
-    # Mock file responses
-    file_data = sample_file_data()
-    file_response = MagicMock()
-    file_response.file_name = file_data["name"]
-    file_response.name = file_data["name"]  # Some endpoints use 'name' instead of 'file_name'
-    file_response.bucket_name = file_data["bucket_name"]
-    file_response.root_cid = file_data["root_cid"]
-    file_response.encoded_size = file_data["encoded_size"]
-    file_response.created_at = mock_timestamp
-    client.FileView.return_value = file_response
-    
-    file_list_response = MagicMock()
-    file_list_response.list = [file_response]
-    client.FileList.return_value = file_list_response
-    
-    return client
-
-def mock_streaming_client() -> MagicMock:
-    """Creates a mock streaming client with standard responses."""
-    client = MagicMock()
-    
-    # Mock timestamp
-    mock_timestamp = MagicMock()
-    mock_timestamp.seconds = sample_file_data()["created_at"]
-    
-    # Mock file upload responses
-    file_data = sample_file_data()
-    upload_response = MagicMock()
-    upload_response.bucket_name = file_data["bucket_name"]
-    upload_response.file_name = file_data["name"]
-    upload_response.stream_id = file_data["stream_id"]
-    upload_response.created_at = mock_timestamp
-    client.FileUploadCreate.return_value = upload_response
-    
-    # Mock file download responses
-    chunk_response = MagicMock()
-    chunk_response.cid = file_data["chunks"][0]["cid"]
-    chunk_response.encoded_size = file_data["chunks"][0]["encoded_size"]
-    chunk_response.size = file_data["chunks"][0]["size"]
-    
-    download_response = MagicMock()
-    download_response.stream_id = file_data["stream_id"]
-    download_response.bucket_name = file_data["bucket_name"]
-    download_response.chunks = [chunk_response]
-    client.FileDownloadCreate.return_value = download_response
-    client.FileDownloadRangeCreate.return_value = download_response
-    
-    # Mock chunk upload responses
-    chunk_upload_response = MagicMock()
-    chunk_upload_response.blocks = []
-    client.FileUploadChunkCreate.return_value = chunk_upload_response
-    
-    return client
-
-def mock_web3_instance() -> MagicMock:
-    """Creates a mock Web3 instance."""
-    web3 = MagicMock()
-    web3.is_connected.return_value = True
-    web3.keccak.return_value = MagicMock()
-    web3.keccak.return_value.hex.return_value = "0x1234567890abcdef"
-    
-    # Mock eth interface
-    web3.eth = MagicMock()
-    web3.eth.get_transaction_count.return_value = 1
-    web3.eth.gas_price = 20000000000  # 20 gwei
-    web3.eth.wait_for_transaction_receipt.return_value = MagicMock(status=1, blockNumber=12345)
-    web3.eth.get_block.return_value = MagicMock(timestamp=int(time.time()))
-    
-    return web3
-
-def mock_ipc_instance() -> MagicMock:
-    """Creates a mock IPC instance with auth and storage components."""
-    ipc = MagicMock()
-    
-    # Mock auth
-    ipc.auth = MagicMock()
-    ipc.auth.address = "0x1234567890abcdef"
-    ipc.auth.key = "0x" + "a" * 64  # Mock private key
-    
-    # Mock storage contract
-    ipc.storage = MagicMock()
-    ipc.storage.create_bucket.return_value = "0xtx123"
-    ipc.storage.delete_bucket.return_value = "0xtx456"
-    ipc.storage.create_file.return_value = "0xtx789"
-    ipc.storage.delete_file.return_value = "0xtxabc"
-    
-    # Mock web3 instance
-    ipc.web3 = mock_web3_instance()
-    
-    return ipc
-
-# Error scenario factories
-def create_grpc_error(code: grpc.StatusCode, details: str = "Test error") -> grpc.RpcError:
-    """Creates a mock gRPC error."""
-    error = MagicMock(spec=grpc.RpcError)
-    error.code.return_value = code
-    error.details.return_value = details
-    return error
-
-def create_not_found_error() -> grpc.RpcError:
-    """Creates a NOT_FOUND gRPC error."""
-    return create_grpc_error(grpc.StatusCode.NOT_FOUND, "Resource not found")
-
-def create_invalid_argument_error() -> grpc.RpcError:
-    """Creates an INVALID_ARGUMENT gRPC error."""
-    return create_grpc_error(grpc.StatusCode.INVALID_ARGUMENT, "Invalid argument")
-
-def create_internal_error() -> grpc.RpcError:
-    """Creates an INTERNAL gRPC error."""
-    return create_grpc_error(grpc.StatusCode.INTERNAL, "Internal server error")
-
-# Test environment setup
-def create_test_environment() -> Dict[str, Any]:
-    """Creates a complete test environment with all necessary mocks."""
-    return {
-        "config": sample_config_data(),
-        "bucket_data": sample_bucket_data(),
-        "file_data": sample_file_data(),
-        "encryption_key": sample_encryption_key(),
-        "grpc_channel": mock_grpc_channel(),
-        "node_client": mock_node_api_client(),
-        "ipc_client": mock_ipc_client(),
-        "streaming_client": mock_streaming_client(),
-        "web3": mock_web3_instance(),
-        "ipc_instance": mock_ipc_instance()
-    }
-
-# Validation test data
-def get_validation_test_cases() -> List[Dict[str, Any]]:
-    """Returns validation test cases for various scenarios."""
-    return [
-        {
-            "name": "empty_bucket_name",
-            "bucket_name": "",
-            "expected_error": "empty bucket name"
-        },
-        {
-            "name": "short_bucket_name", 
-            "bucket_name": "a",
-            "expected_error": "invalid bucket name"
-        },
-        {
-            "name": "empty_file_name",
-            "file_name": "",
-            "expected_error": "empty file name"
-        },
-        {
-            "name": "invalid_encryption_key",
-            "encryption_key": b"short",
-            "expected_error": "Encryption key length should be 32 bytes long"
-        }
-    ] 
+@pytest.fixture
+def generate_test_file_name():
+    def _generate():
+        return f"pytest-file-{secrets.token_hex(4)}.bin"
+    return _generate
