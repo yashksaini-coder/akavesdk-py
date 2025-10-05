@@ -678,3 +678,4 @@ class TestDAGIntegration:
             
             assert decoded == value
             assert bytes_read == len(encoded)
+
