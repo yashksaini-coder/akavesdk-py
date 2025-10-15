@@ -2322,10 +2322,11 @@ class StorageContract:
             bucket_id_bytes = bytes.fromhex(bucket_id_hex)
             print(f"Using bucket_id from IPC: 0x{bucket_id_hex}")
             
-            # Get bucket index by name and owner (like Go SDK)
             try:
-                bucket_index = self.contract.functions.getBucketIndexByName(bucket_name, from_address).call()
-                print(f"Got bucket_index: {bucket_index}")
+                result = self.contract.functions.getBucketIndexByName(bucket_name, from_address).call()
+                bucket_index = result[0] if isinstance(result, (list, tuple)) else result
+                print(f"Got bucket_index result: {result}")
+                print(f"Using bucket_index: {bucket_index}")
             except Exception as e:
                 print(f"getBucketIndexByName failed: {e}")
                 raise Exception(f"Failed to get bucket index: {str(e)}")

@@ -337,7 +337,9 @@ class IPC:
         try:
             request = ipcnodeapi_pb2.IPCFileListRequest(
                 bucket_name=bucket_name,
-                address=self.ipc.auth.address.lower()
+                address=self.ipc.auth.address.lower(),
+                offset=0,
+                limit=1000  # Default limit to get up to 1000 files
             )
             response = self.client.FileList(request)
             
@@ -352,13 +354,15 @@ class IPC:
                     file_name = file_item.name if hasattr(file_item, 'name') else ''
                     root_cid = file_item.root_cid if hasattr(file_item, 'root_cid') else ''
                     encoded_size = file_item.encoded_size if hasattr(file_item, 'encoded_size') else 0
+                    actual_size = file_item.actual_size if hasattr(file_item, 'actual_size') else 0
                     
-                    logging.info(f"Processing file: name={file_name}, root_cid={root_cid}, size={encoded_size}, created_at={created_at}")
+                    logging.info(f"Processing file: name={file_name}, root_cid={root_cid}, encoded_size={encoded_size}, actual_size={actual_size}, created_at={created_at}")
                     
                     files.append(IPCFileListItem(
                         name=file_name,
                         root_cid=root_cid,
                         encoded_size=encoded_size,
+                        actual_size=actual_size,
                         created_at=created_at
                     ))
             else:
@@ -373,45 +377,80 @@ class IPC:
             raise SDKError(f"failed to list files: {err}")
 
     def file_delete(self, ctx, bucket_name: str, file_name: str) -> None:
+        """Delete a file by bucket name and file name.
+        
+        This implementation matches the Go SDK's IPC FileDelete method.
+        """
         if not bucket_name.strip() or not file_name.strip():
             raise SDKError(f"empty bucket or file name. Bucket: '{bucket_name}', File: '{file_name}'")
 
         try:
+            # Note: Metadata encryption would be applied here if implemented
+            # For now, using the names as-is like in the current implementation
             encrypted_file_name = file_name
             encrypted_bucket_name = bucket_name
             
-            bucket_info = self.view_bucket(None, encrypted_bucket_name)
-            if not bucket_info:
+            # Step 1: Get bucket by name from storage contract
+            # Go SDK: bucket, err := sdk.ipc.Storage.GetBucketByName(...)
+            bucket = self.ipc.storage.get_bucket_by_name(
+                {"from": self.ipc.auth.address},
+                encrypted_bucket_name,
+                self.ipc.auth.address,
+                0,  # file_offset - no need to fetch file ids
+                0   # file_limit - no need to fetch file ids
+            )
+            if not bucket:
                 raise SDKError(f"bucket '{bucket_name}' not found")
             
-            bucket_id_hex = bucket_info.id
-            if bucket_id_hex.startswith('0x'):
-                bucket_id_hex = bucket_id_hex[2:]
-            bucket_id = bytes.fromhex(bucket_id_hex)
+            bucket_id = bucket[0]  # bytes32 bucket ID
+            bucket_name_from_contract = bucket[1]  # Bucket name from contract
             
+            # Step 2: Get file by name from storage contract
+            # Go SDK: file, err := sdk.ipc.Storage.GetFileByName(&bind.CallOpts{Context: ctx}, bucket.Id, fileName)
             file_info = self.ipc.storage.get_file_by_name(
-                {}, 
+                {"from": self.ipc.auth.address}, 
                 bucket_id,
                 encrypted_file_name
             )
             if not file_info:
-                raise SDKError("failed to retrieve file - file does not exist")
+                raise SDKError(f"failed to retrieve file - file does not exist")
             
-            file_id = file_info[0]  # bytes32 file ID
+            file_id = file_info[0]  
+            file_index = None
             try:
                 file_index = self.ipc.storage.get_file_index_by_id(
                     {"from": self.ipc.auth.address},
-                    bucket_name,
-                    file_id 
+                    encrypted_bucket_name,
+                    file_id
                 )
+                logging.info(f"Got file index from contract: {file_index}")
             except Exception as index_err:
-                raise SDKError(f"failed to retrieve file index - file may not exist: {index_err}")
-
-            # Validate that we got a valid index
-            if file_index is None or file_index < 0:
-                raise SDKError("invalid file index returned from contract")
+                logging.warning(f"Failed to get file index from contract: {index_err}")
+                logging.info("Falling back to manual index calculation via file listing...")
+                
+                try:
+                    files = self.list_files(ctx, bucket_name)
+                    for i, f in enumerate(files):
+                        if f.name == encrypted_file_name:
+                            file_index = i
+                            logging.info(f"Calculated manual file index: {file_index} (position in list)")
+                            break
+                    
+                    if file_index is None:
+                        raise SDKError(f"file '{file_name}' not found in bucket file list")
+                        
+                except Exception as list_err:
+                    logging.error(f"Failed to calculate manual index: {list_err}")
+                    raise SDKError(f"failed to determine file index: contract method failed and manual calculation failed: {index_err}")
             
+            # Validate that we got a valid index
+            if file_index is None or (isinstance(file_index, int) and file_index < 0):
+                raise SDKError(f"invalid file index: {file_index}")
+            
+            # Step 4: Delete file via storage contract transaction
+            # Go SDK: tx, err := sdk.ipc.Storage.DeleteFile(sdk.ipc.Auth, file.Id, bucket.Id, fileName, fileIdx.Index)
             logging.info(f"Deleting file with file_id: {file_id.hex() if isinstance(file_id, bytes) else file_id}, bucket_id: {bucket_id.hex() if isinstance(bucket_id, bytes) else bucket_id}, name: {encrypted_file_name}, index: {file_index}")
+            
             tx_hash = self.ipc.storage.delete_file(
                 self.ipc.auth,          
                 file_id,                
@@ -420,9 +459,14 @@ class IPC:
                 file_index             
             )
             
+            # Go SDK waits for transaction: return errSDK.Wrap(sdk.ipc.WaitForTx(ctx, tx.Hash()))
+            # Python SDK doesn't have WaitForTx implemented yet, so we just return
             logging.info(f"IPC file_delete transaction successful for '{file_name}' in bucket '{bucket_name}', tx_hash: {tx_hash}")
             return None
             
+        except SDKError:
+            # Re-raise SDKError as-is
+            raise
         except Exception as err:
             logging.error(f"IPC file_delete failed: {err}")
             raise SDKError(f"failed to delete file: {err}")
@@ -485,334 +529,6 @@ class IPC:
         except Exception as err:
             logging.error(f"IPC create_file_upload failed: {err}")
             raise SDKError(f"failed to create file upload: {err}")
-
-    def _upload_parallel(self, ctx, file_upload: IPCFileUpload, reader: io.IOBase) -> IPCFileMetaV2:
-        return self._upload_full_parallel(ctx, file_upload, reader)
-        try:
-            if file_upload is None:
-                raise SDKError("empty file upload")
-            if file_upload.state.is_committed:
-                raise SDKError("file is already committed")
-            if not file_upload.bucket_name:
-                raise SDKError("empty bucket name")
-            if not file_upload.name:
-                raise SDKError("empty file name")
-
-            is_continuation = file_upload.state.chunk_count > 0
-
-            encrypted_file_name = maybe_encrypt_metadata(file_upload.name, file_upload.bucket_name + "/" + file_upload.name, self.encryption_key)
-            encrypted_bucket_name = maybe_encrypt_metadata(file_upload.bucket_name, file_upload.name, self.encryption_key)
-
-            bucket = None
-
-            def get_bucket_call():
-                nonlocal bucket
-                try:
-                    bucket = self.ipc.storage.get_bucket_by_name(
-                        call_opts={'from': self.ipc.auth.address},
-                        bucket_name=encrypted_bucket_name,
-                        owner_address=self.ipc.auth.address,
-                        file_offset=0,
-                        file_limit=0
-                    )
-                    return (False, None)
-                except Exception as e:
-                    return (True, e)
-
-            retry_err = self.with_retry.do(None, get_bucket_call)
-            if retry_err:
-                raise SDKError(f"failed to get bucket: {str(retry_err)}")
-
-            if not bucket or len(bucket) == 0 or not bucket[0]:
-                raise SDKError(f"bucket '{file_upload.bucket_name}' not found")
-
-            bucket_id = bucket[0]
-
-            chunk_enc_overhead = 0
-            file_enc_key = encryption_key(self.encryption_key, encrypted_bucket_name, encrypted_file_name)
-            if len(file_enc_key) > 0:
-                chunk_enc_overhead = EncryptionOverhead
-
-            buffer_size = self.max_blocks_in_chunk * int(BlockSize)
-            if self.erasure_code:
-                buffer_size = self.erasure_code.data_blocks * int(BlockSize)
-            buffer_size -= chunk_enc_overhead
-
-            if is_continuation:
-                from .sdk import skip_to_position
-                skip_to_position(reader, file_upload.state.actual_file_size)
-
-            return self._upload_full_parallel(ctx, file_upload, reader, bucket_id, encrypted_file_name,
-                                            encrypted_bucket_name, file_enc_key, buffer_size)
-
-        except Exception as err:
-            logging.error(f"IPC Upload failed: {err}")
-            raise SDKError(f"upload failed: {str(err)}")
-
-    def _upload_full_parallel(self, ctx, file_upload: IPCFileUpload, reader: io.IOBase, bucket_id: bytes,
-                             encrypted_file_name: str, encrypted_bucket_name: str, file_enc_key: bytes,
-                             buffer_size: int) -> IPCFileMetaV2:
-
-        transaction_queue = queue.Queue(maxsize=self.chunk_buffer)
-        upload_queue = queue.Queue(maxsize=self.chunk_buffer)
-        result_queue = queue.Queue()
-
-        stop_event = threading.Event()
-        completed_event = threading.Event()
-
-        class Counters:
-            def __init__(self):
-                self.chunks_processed = 0
-                self.blocks_uploaded = 0
-                self.errors = []
-
-        counters = Counters()
-
-
-        results = {
-            'root_cid': None,
-            'file_meta': None,
-            'file_id': None,
-            'error': None
-        }
-
-        def chunk_reader_thread():
-            try:
-                chunk_index = file_upload.state.chunk_count
-
-                while not stop_event.is_set():
-                    chunk_data = bytearray(buffer_size)
-                    bytes_read = 0
-
-                    while bytes_read < buffer_size:
-                        try:
-                            n = reader.readinto(memoryview(chunk_data)[bytes_read:])
-                            if n == 0 or n is None:
-                                break
-                            bytes_read += n
-                        except Exception as e:
-                            if bytes_read == 0:
-                                counters.errors.append(SDKError(f"failed to read from reader: {str(e)}"))
-                                stop_event.set()
-                                return
-                            break
-
-                    if bytes_read == 0:
-                        if chunk_index == 0:
-                            results['error'] = SDKError("empty file")
-                            stop_event.set()
-                            return
-                        break
-
-                    chunk_upload = self.create_chunk_upload(ctx, chunk_index, file_enc_key,
-                                                          chunk_data[:bytes_read], bucket_id,
-                                                          encrypted_file_name)
-
-                    cids, sizes, proto_chunk, error = to_ipc_proto_chunk(
-                        chunk_upload.chunk_cid, chunk_upload.index, chunk_upload.actual_size,
-                        chunk_upload.blocks)
-                    if error:
-                        results['error'] = error
-                        stop_event.set()
-                        return
-
-                    tx_hash = None
-                    max_retries = 3
-                    for attempt in range(max_retries):
-                        try:
-                            tx_hash = self.ipc.storage.add_file_chunk(
-                                self.ipc.auth.address, self.ipc.auth.key,
-                                self._convert_cid_to_bytes(chunk_upload.chunk_cid),
-                                bucket_id, encrypted_file_name, chunk_upload.encoded_size,
-                                cids, sizes, chunk_upload.index, nonce_manager=None)
-                            break
-                        except Exception as e:
-                            error_msg = str(e).lower()
-                            is_retryable = any(retry_phrase in error_msg for retry_phrase in [
-                                "nonce too low", "replacement transaction underpriced", "eof"])
-                            if is_retryable and attempt < max_retries - 1:
-                                time.sleep(0.5 * (2 ** attempt))
-                                continue
-                            else:
-                                results['error'] = SDKError(f"failed to add file chunk: {str(e)}")
-                                stop_event.set()
-                                return
-
-                    if hasattr(self.ipc, 'wait_for_tx') and tx_hash:
-                        self.ipc.wait_for_tx(tx_hash)
-                    elif hasattr(self.ipc, 'web3') and tx_hash:
-                        receipt = self.ipc.eth.eth.wait_for_transaction_receipt(tx_hash)
-                        if receipt.status != 1:
-                            results['error'] = SDKError("AddFileChunk transaction failed")
-                            stop_event.set()
-                            return
-
-                    file_upload.state.pre_create_chunk(chunk_upload, tx_hash)
-
-                    try:
-                        transaction_queue.put(TxWaitSignal(FileUploadChunk=chunk_upload, Transaction=tx_hash), timeout=1)
-                    except queue.Full:
-                        results['error'] = SDKError("transaction queue full")
-                        stop_event.set()
-                        return
-
-                    chunk_index += 1
-
-            except Exception as e:
-                results['error'] = e
-                stop_event.set()
-
-        def transaction_waiter_thread():
-            try:
-                while not stop_event.is_set():
-                    try:
-                        tx_signal = transaction_queue.get(timeout=1)
-                        if tx_signal is None:
-                            break
-
-                        if hasattr(self.ipc, 'wait_for_tx'):
-                            self.ipc.wait_for_tx(tx_signal.Transaction)
-                        elif hasattr(self.ipc, 'web3'):
-                            receipt = self.ipc.eth.eth.wait_for_transaction_receipt(tx_signal.Transaction)
-                            if receipt.status != 1:
-                                results['error'] = SDKError("transaction confirmation failed")
-                                stop_event.set()
-                                return
-
-                        try:
-                            upload_queue.put(tx_signal.FileUploadChunk, timeout=1)
-                        except queue.Full:
-                            results['error'] = SDKError("upload queue full")
-                            stop_event.set()
-                            return
-
-                        transaction_queue.task_done()
-
-                    except queue.Empty:
-                        continue
-                    except Exception as e:
-                        results['error'] = e
-                        stop_event.set()
-                        return
-
-            except Exception as e:
-                results['error'] = e
-                stop_event.set()
-
-        def chunk_uploader_thread():
-            try:
-                pool = ConnectionPool()
-
-                while not stop_event.is_set():
-                    try:
-                        chunk_upload = upload_queue.get(timeout=1)
-                        if chunk_upload is None:
-                            break
-
-                        err = self.upload_chunk(ctx, chunk_upload)
-                        if err is not None:
-                            results['error'] = err
-                            stop_event.set()
-                            return
-
-                        file_upload.state.chunk_uploaded(chunk_upload)
-                        file_upload.chunks_counter += 1
-
-                        upload_queue.task_done()
-
-                    except queue.Empty:
-                        continue
-                    except Exception as e:
-                        results['error'] = e
-                        stop_event.set()
-                        return
-
-            except Exception as e:
-                results['error'] = e
-                stop_event.set()
-
-        threads = [
-            threading.Thread(target=chunk_reader_thread, daemon=True),
-            threading.Thread(target=transaction_waiter_thread, daemon=True),
-            threading.Thread(target=chunk_uploader_thread, daemon=True)
-        ]
-
-        for t in threads:
-            t.start()
-
-        for t in threads:
-            t.join()
-
-        if results['error']:
-            raise results['error']
-
-        root_cid = file_upload.state.dag_root.build()
-
-        file_meta = self.ipc.storage.get_file_by_name(
-            {"from": self.ipc.auth.address}, bucket_id, encrypted_file_name)
-
-        file_id = self._calculate_file_id(bucket_id, encrypted_file_name)
-
-        is_filled = False
-        max_wait_time = 50
-        wait_start = time.time()
-
-        while not is_filled:
-            try:
-                is_filled = self.ipc.storage.is_file_filled(file_id)
-                if is_filled:
-                    break
-            except Exception as e:
-                logging.warning(f"IsFileFilled check failed: {e}")
-                time.sleep(2)
-                break
-
-            if time.time() - wait_start > max_wait_time:
-                raise SDKError("timeout waiting for file to be filled")
-            time.sleep(1)
-
-        tx_hash = None
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                root_cid_bytes = self._convert_cid_to_bytes(root_cid)
-                bucket_info = self.view_bucket(None, encrypted_bucket_name)
-                if not bucket_info:
-                    raise SDKError(f"bucket '{file_upload.bucket_name}' not found during commit")
-
-                tx_hash = self.ipc.storage.commit_file(
-                    bucket_info.name, encrypted_file_name,
-                    file_upload.state.actual_file_size, root_cid_bytes,
-                    self.ipc.auth.address, self.ipc.auth.key)
-                break
-            except Exception as e:
-                error_msg = str(e).lower()
-                is_retryable = any(retry_phrase in error_msg for retry_phrase in [
-                    "nonce too low", "replacement transaction underpriced", "eof"])
-                if is_retryable and attempt < max_retries - 1:
-                    time.sleep(0.5 * (2 ** attempt))
-                    continue
-                else:
-                    raise SDKError(f"failed to commit file: {str(e)}")
-
-        if hasattr(self.ipc, 'wait_for_tx') and tx_hash:
-            self.ipc.wait_for_tx(tx_hash)
-        elif hasattr(self.ipc, 'web3') and tx_hash:
-            receipt = self.ipc.eth.eth.wait_for_transaction_receipt(tx_hash)
-            if receipt.status != 1:
-                raise SDKError("CommitFile transaction failed")
-
-        file_upload.state.is_committed = True
-
-        return IPCFileMetaV2(
-            root_cid=str(root_cid),
-            bucket_name=encrypted_bucket_name,
-            name=encrypted_file_name,
-            encoded_size=file_upload.state.encoded_file_size,
-            size=file_upload.state.actual_file_size,
-            created_at=time.time() if file_meta else None,
-            committed_at=time.time()
-        )
 
     def upload(self, ctx, bucket_name: str, file_name: str, reader: io.IOBase) -> IPCFileMetaV2:
         try:
@@ -1005,83 +721,6 @@ class IPC:
         except Exception as err:
             raise SDKError(f"upload failed: {str(err)}")
     
-    def _create_fill_chunk_blocks_args(self, chunk_upload: IPCFileChunkUploadV2, bucket_id: bytes) -> list:
-        try:
-            fill_args = []
-            deadline = int(time.time() + 24 * 60 * 60)
-            
-            for i, block in enumerate(chunk_upload.blocks):
-                node_id = block.node_id if hasattr(block, 'node_id') else block["node_id"]
-                
-                try:
-                    import base58
-                    if node_id.startswith('12D3'):
-                        decoded = base58.b58decode(node_id)
-                        processed_node_id = decoded[6:]
-                    else:
-                        processed_node_id = node_id.encode() if isinstance(node_id, str) else node_id
-                except ImportError:
-                    processed_node_id = node_id.encode() if isinstance(node_id, str) else node_id
-                
-                node_id_32 = bytearray(32)
-                if len(processed_node_id) >= 32:
-                    node_id_32[:] = processed_node_id[:32]
-                else:
-                    node_id_32[:len(processed_node_id)] = processed_node_id
-                
-                block_cid = block.cid if hasattr(block, 'cid') else block["cid"]
-                block_cid_bytes = self._convert_cid_to_bytes(block_cid)
-                
-                bcid = bytearray(32)
-                if len(block_cid_bytes) > 4:
-                    copy_len = min(len(block_cid_bytes) - 4, 32)
-                    bcid[:copy_len] = block_cid_bytes[4:4+copy_len]
-                else:
-                    copy_len = min(len(block_cid_bytes), 32)
-                    bcid[:copy_len] = block_cid_bytes[:copy_len]
-                
-                import secrets
-                nonce = secrets.randbits(256)
-                
-                chunk_cid = chunk_upload.chunk_cid
-                if hasattr(chunk_cid, 'string'):
-                    chunk_cid_str = chunk_cid.string()
-                elif hasattr(chunk_cid, 'toString'):
-                    chunk_cid_str = chunk_cid.toString()
-                elif not isinstance(chunk_cid, str):
-                    chunk_cid_str = str(chunk_cid)
-                else:
-                    chunk_cid_str = chunk_cid
-                    
-                signature_hex, _ = self._create_storage_signature(
-                    chunk_cid_str, block_cid, chunk_upload.index, i, node_id, nonce, deadline, bucket_id
-                )
-                
-                bucket_id_32 = bytearray(32)
-                if len(bucket_id) >= 32:
-                    bucket_id_32[:] = bucket_id[:32]
-                else:
-                    bucket_id_32[:len(bucket_id)] = bucket_id
-                
-                fill_arg = {
-                    'blockCID': bytes(bcid),
-                    'nodeId': bytes(node_id_32),
-                    'bucketId': bytes(bucket_id_32),
-                    'chunkIndex': chunk_upload.index,
-                    'nonce': nonce,
-                    'blockIndex': i,
-                    'fileName': chunk_upload.file_name,
-                    'signature': bytes.fromhex(signature_hex),
-                    'deadline': deadline
-                }
-                
-                fill_args.append(fill_arg)
-            
-            return fill_args
-            
-        except Exception as e:
-            raise SDKError(f"failed to create FillChunkBlocks arguments: {str(e)}")
-
     def _calculate_file_id(self, bucket_id: bytes, file_name: str) -> bytes:
         try:
             from Crypto.Hash import keccak
