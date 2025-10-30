@@ -21,7 +21,16 @@ class ConnectionPool:
                     return None, None, err
                 return ipcnodeapi_pb2_grpc.IPCNodeAPIStub(conn), None, None
 
-            conn = grpc.insecure_channel(addr)
+            options = [
+                ('grpc.max_receive_message_length', 100 * 1024 * 1024),  
+                ('grpc.max_send_message_length', 100 * 1024 * 1024),
+                ('grpc.keepalive_time_ms', 30000),  
+                ('grpc.keepalive_timeout_ms', 10000),  
+                ('grpc.keepalive_permit_without_calls', 1), 
+                ('grpc.http2.max_pings_without_data', 0),  
+                ('grpc.http2.min_time_between_pings_ms', 10000), 
+            ]
+            conn = grpc.insecure_channel(addr, options=options)
             return ipcnodeapi_pb2_grpc.IPCNodeAPIStub(conn), conn.close, None
             
         except Exception as e:
@@ -35,7 +44,16 @@ class ConnectionPool:
                     return None, None, err
                 return nodeapi_pb2_grpc.StreamAPIStub(conn), None, None
 
-            conn = grpc.insecure_channel(addr)
+            options = [
+                ('grpc.max_receive_message_length', 100 * 1024 * 1024), 
+                ('grpc.max_send_message_length', 100 * 1024 * 1024),
+                ('grpc.keepalive_time_ms', 30000), 
+                ('grpc.keepalive_timeout_ms', 10000), 
+                ('grpc.keepalive_permit_without_calls', 1),  
+                ('grpc.http2.max_pings_without_data', 0), 
+                ('grpc.http2.min_time_between_pings_ms', 10000),  
+            ]
+            conn = grpc.insecure_channel(addr, options=options)
             return nodeapi_pb2_grpc.StreamAPIStub(conn), conn.close, None
             
         except Exception as e:
@@ -51,7 +69,16 @@ class ConnectionPool:
                 return self._connections[addr], None
 
             try:
-                conn = grpc.insecure_channel(addr)
+                options = [
+                    ('grpc.max_receive_message_length', 100 * 1024 * 1024),  
+                    ('grpc.max_send_message_length', 100 * 1024 * 1024),
+                    ('grpc.keepalive_time_ms', 30000),  
+                    ('grpc.keepalive_timeout_ms', 10000),  
+                    ('grpc.keepalive_permit_without_calls', 1),  
+                    ('grpc.http2.max_pings_without_data', 0), 
+                    ('grpc.http2.min_time_between_pings_ms', 10000),  
+                ]
+                conn = grpc.insecure_channel(addr, options=options)
                 
                 try:
                     grpc.channel_ready_future(conn).result(timeout=5)

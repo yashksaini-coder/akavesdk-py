@@ -94,14 +94,13 @@ def to_ipc_proto_chunk(chunk_cid, index: int, size: int, blocks):
         
         try:
             try:
-                if hasattr(block_cid, 'bytes'):
-                    cid_bytes = block_cid.bytes if callable(block_cid.bytes) else block_cid.bytes()
+                if hasattr(block_cid, '__bytes__'):
+                    cid_bytes = bytes(block_cid)
                 else:
                     c = CID.decode(block_cid_str)
-                    cid_bytes = c.bytes if callable(c.bytes) else c.bytes()
-            except Exception:
-                import hashlib
-                cid_bytes = hashlib.sha256(block_cid_str.encode()).digest()
+                    cid_bytes = bytes(c)
+            except Exception as e:
+                raise SDKError(f"failed to get CID bytes for block {block_cid_str}: {str(e)}")
             
             bcid = bytearray(32)
             
@@ -738,21 +737,13 @@ class IPC:
             raise SDKError(f"Failed to calculate file ID: {str(e)}")
 
     def _convert_cid_to_bytes(self, cid_input) -> bytes:
-        if hasattr(cid_input, 'bytes'):
-            try:
-                if callable(cid_input.bytes):
-                    return cid_input.bytes()
-                else:
-                    return bytes(cid_input.bytes)
-            except Exception as e:
-                logging.warning(f"Failed to access .bytes on CID object: {e}")
-        
-        elif hasattr(cid_input, '__bytes__'):
+        if hasattr(cid_input, '__bytes__'):
             try:
                 return bytes(cid_input)
             except Exception as e:
                 logging.warning(f"Failed to call __bytes__ on CID object: {e}")
         
+        # Convert to string if needed
         if not isinstance(cid_input, str):
             cid_str = str(cid_input)
         else:
@@ -761,16 +752,7 @@ class IPC:
         try:
             from multiformats import CID as CIDLib
             cid_obj = CIDLib.decode(cid_str)
-            
-            if hasattr(cid_obj, 'bytes'):
-                if callable(cid_obj.bytes):
-                    return cid_obj.bytes()
-                else:
-                    return bytes(cid_obj.bytes)
-            elif hasattr(cid_obj, '__bytes__'):
-                return bytes(cid_obj)
-            else:
-                raise Exception("CID object has no bytes representation")
+            return bytes(cid_obj)
                 
         except Exception as e:
             logging.error(f"Failed to decode CID using multiformats library: {e}")
